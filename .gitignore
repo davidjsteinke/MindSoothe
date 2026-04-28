@@ -23,3 +23,6 @@ Thumbs.db
 
 # Test corpus working files (corpus itself IS tracked; working files aren't)
 .test-corpus-cache/
+
+# Claude Code per-project state (session history, not source)
+.claude/

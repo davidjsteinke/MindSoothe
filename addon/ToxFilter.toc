@@ -1,0 +1,18 @@
+## Interface: 120005
+## Title: ToxFilter
+## Notes: Role-confidence support — filters incoming group/raid/instance/BG chat. Pre-release working name.
+## Author: davidjsteinke
+## Version: 0.0.2-sprint1
+
+Libs\LibStub\LibStub.lua
+Libs\CallbackHandler-1.0\CallbackHandler-1.0.xml
+Libs\AceAddon-3.0\AceAddon-3.0.xml
+Libs\AceEvent-3.0\AceEvent-3.0.xml
+Libs\AceConsole-3.0\AceConsole-3.0.xml
+
+Hash.lua
+Normalize.lua
+Categories.lua
+RuleEngine.lua
+RuleData.lua
+ToxFilter.lua
