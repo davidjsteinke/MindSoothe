@@ -1,0 +1,25 @@
+# Sensitive content directory — see Project Frame > Sensitive Content Disclaimer
+sensitive/
+
+# Python
+__pycache__/
+*.pyc
+.venv/
+venv/
+
+# Build artifacts
+dist/
+build/
+*.egg-info/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Test corpus working files (corpus itself IS tracked; working files aren't)
+.test-corpus-cache/
