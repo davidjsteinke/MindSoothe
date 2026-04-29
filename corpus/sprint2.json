@@ -4,7 +4,7 @@
   "notes": "Sprint 2 seed corpus. All attack content uses placeholder slugs from sensitive/*.txt — no real slurs. Negative modifiers (trash, garbage, etc.) and role nouns are common English game terms. expected_rewrite is null for pass-through entries; only edit/del/silent entries pin a rewrite.",
   "entries": [
     { "id": "ra_001", "input": "you're a placeholder_slur_c tank",            "expected_handling": "edit", "expected_category": "slur",         "expected_rewrite": "[ToxEdit]", "tags": ["role_attack", "slur_wins_category", "whole_message_attack"] },
-    { "id": "ra_002", "input": "worst testword_slur_a healer ever",         "expected_handling": "edit", "expected_category": "slur",         "expected_rewrite": "[ToxEdit]", "tags": ["role_attack", "slur_wins_category", "whole_message_attack"] },
+    { "id": "ra_002", "input": "worst testword_slur_a healer ever",         "expected_handling": "edit", "expected_category": "slur",         "expected_rewrite": "[ToxEdit] ever", "tags": ["role_attack", "slur_wins_category", "known_fuzzy", "absorption_gap"] },
     { "id": "ra_003", "input": "trash mage",                                   "expected_handling": "edit", "expected_category": "role_attack",  "expected_rewrite": "[ToxEdit]", "tags": ["role_attack", "whole_message_attack"] },
     { "id": "ra_004", "input": "you fucking trash dps",                        "expected_handling": "edit", "expected_category": "role_attack",  "expected_rewrite": "[ToxEdit]", "tags": ["role_attack", "intensifier_absorbed"] },
     { "id": "ra_005", "input": "useless paladin",                              "expected_handling": "edit", "expected_category": "role_attack",  "expected_rewrite": "[ToxEdit]", "tags": ["role_attack", "whole_message_attack"] },
@@ -38,10 +38,10 @@
     { "id": "ep_005", "input": "great job everyone we got it next time",       "expected_handling": "pass", "expected_category": null,           "expected_rewrite": null, "tags": ["earnest_praise", "fp_test"] },
 
     { "id": "sl_001", "input": "placeholder_slur_c",                           "expected_handling": "edit", "expected_category": "slur",         "expected_rewrite": "[ToxEdit]", "tags": ["slur", "whole_message_attack", "single_token"] },
-    { "id": "sl_002", "input": "testword_slur_a everyone",                     "expected_handling": "edit", "expected_category": "slur",         "expected_rewrite": "[ToxEdit]", "tags": ["slur", "no_tactical_drops_neutrals"] },
+    { "id": "sl_002", "input": "testword_slur_a everyone",                     "expected_handling": "edit", "expected_category": "slur",         "expected_rewrite": "[ToxEdit] everyone", "tags": ["slur", "neutral_outside_attack_preserved"] },
     { "id": "sl_003", "input": "placeholder_slur_g",                           "expected_handling": "edit", "expected_category": "slur",         "expected_rewrite": "[ToxEdit]", "tags": ["slur", "whole_message_attack"] },
     { "id": "sl_004", "input": "fakehate_slur_d",                              "expected_handling": "edit", "expected_category": "slur",         "expected_rewrite": "[ToxEdit]", "tags": ["slur", "whole_message_attack"] },
-    { "id": "sl_005", "input": "testword_slur_b is bad",                       "expected_handling": "edit", "expected_category": "slur",         "expected_rewrite": "[ToxEdit]", "tags": ["slur", "no_tactical_drops_neutrals"] },
+    { "id": "sl_005", "input": "testword_slur_b is bad",                       "expected_handling": "edit", "expected_category": "slur",         "expected_rewrite": "[ToxEdit] is bad", "tags": ["slur", "neutral_outside_attack_preserved"] },
 
     { "id": "slt_001", "input": "interrupt the cast testword_slur_b",       "expected_handling": "edit", "expected_category": "slur",         "expected_rewrite": "[ToxEdit] interrupt the cast",  "tags": ["slur", "tactical_preserved"] },
     { "id": "slt_002", "input": "move out of fire testword_slur_a",            "expected_handling": "edit", "expected_category": "slur",         "expected_rewrite": "[ToxEdit] move out of fire",    "tags": ["slur", "tactical_preserved"] },
@@ -68,12 +68,18 @@
     { "id": "ptr_003", "input": "healer can you dispel",                       "expected_handling": "pass", "expected_category": null,           "expected_rewrite": null, "tags": ["role_noun_no_modifier", "fp_test"] },
 
     { "id": "multi_001", "input": "testword_slur_a testword_harm_a",           "expected_handling": "del",  "expected_category": "harm_invocation", "expected_rewrite": "[ToxDel: Harm Invocation]", "tags": ["multi_hit", "del_outranks_edit"] },
-    { "id": "multi_002", "input": "placeholder_slur_c moron",                  "expected_handling": "edit", "expected_category": "slur",            "expected_rewrite": "[ToxEdit]",                  "tags": ["multi_hit", "neg_mod_no_pattern_context"] },
+    { "id": "multi_002", "input": "placeholder_slur_c moron",                  "expected_handling": "edit", "expected_category": "slur",            "expected_rewrite": "[ToxEdit] moron",            "tags": ["multi_hit", "neg_mod_no_pattern_context", "neutral_outside_attack_preserved"] },
     { "id": "multi_003", "input": "testword_slur_a fakehate_hostile_c",        "expected_handling": "del",  "expected_category": "general_hostility","expected_rewrite": "[ToxDel: General Hostility]","tags": ["multi_hit", "del_outranks_edit"] },
 
     { "id": "f_001", "input": "ToxFilterTest:Pass hello",                      "expected_handling": "pass", "expected_category": null,           "expected_rewrite": null, "tags": ["sprint0_fixture_regression"] },
     { "id": "f_002", "input": "ToxFilterTest:Edit hey ok",                     "expected_handling": "pass", "expected_category": null,           "expected_rewrite": null, "tags": ["sprint0_fixture_regression"] },
     { "id": "f_003", "input": "ToxFilterTest:Del whatever",                    "expected_handling": "pass", "expected_category": null,           "expected_rewrite": null, "tags": ["sprint0_fixture_regression"] },
-    { "id": "f_004", "input": "ToxFilterTest:Silent anything",                 "expected_handling": "pass", "expected_category": null,           "expected_rewrite": null, "tags": ["sprint0_fixture_regression"] }
+    { "id": "f_004", "input": "ToxFilterTest:Silent anything",                 "expected_handling": "pass", "expected_category": null,           "expected_rewrite": null, "tags": ["sprint0_fixture_regression"] },
+
+    { "id": "ns_001", "input": "okay placeholder_slur_c",                      "expected_handling": "edit", "expected_category": "slur",         "expected_rewrite": "[ToxEdit] okay",                       "tags": ["slur", "neutral_outside_attack_preserved", "regression"] },
+    { "id": "ns_002", "input": "placeholder_slur_c whatever",                  "expected_handling": "edit", "expected_category": "slur",         "expected_rewrite": "[ToxEdit] whatever",                   "tags": ["slur", "neutral_outside_attack_preserved", "regression"] },
+    { "id": "ns_003", "input": "placeholder_slur_c blocking the door",         "expected_handling": "edit", "expected_category": "slur",         "expected_rewrite": "[ToxEdit] blocking the door",          "tags": ["slur", "neutral_outside_attack_preserved", "regression"] },
+    { "id": "ns_004", "input": "pl4ceh0lder_slur_c whatever",                  "expected_handling": "edit", "expected_category": "slur",         "expected_rewrite": "[ToxEdit] whatever",                   "tags": ["slur", "leetspeak", "neutral_outside_attack_preserved", "regression"] },
+    { "id": "ns_005", "input": "wow placeholder_slur_c they pulled too early", "expected_handling": "edit", "expected_category": "slur",         "expected_rewrite": "[ToxEdit] wow they pulled too early",  "tags": ["slur", "neutral_outside_attack_preserved", "regression"] }
   ]
 }

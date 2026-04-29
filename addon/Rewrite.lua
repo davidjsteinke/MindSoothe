@@ -1,9 +1,12 @@
 -- Surgical rewrite engine. Consumes classifier per-token labels and produces
 -- the [ToxEdit] body. Two modes:
 --   * whole_message_preserved (sarcasm-only): emit input verbatim with prefix.
---   * default: drop attack-labeled tokens, keep tactical and neutral tokens.
---     If no tactical token exists in the message, drop neutrals too — neutral
---     fillers (the/a/of/...) only travel with adjacent tactical content.
+--   * default: drop attack-labeled tokens; preserve tactical and neutral.
+--     Neutrals adjacent to an attack span are already absorbed into `attack`
+--     by the classifier (Passes 3/4), so any surviving `neutral` is outside
+--     attack scaffolding and is real chat signal — affirmatives ("okay",
+--     "whatever", "gg"), filler, banter — and must be preserved regardless
+--     of whether tactical content anchors it.
 
 local _, ns = ...
 
@@ -17,17 +20,10 @@ local function rewrite(msg, result)
     local raw_tokens = result.raw_tokens or {}
     local labels     = result.labels or {}
 
-    local has_tactical = false
-    for i = 1, #labels do
-        if labels[i] == "tactical" then has_tactical = true; break end
-    end
-
     local kept = {}
     for i = 1, #raw_tokens do
         local lbl = labels[i] or "neutral"
-        if lbl == "tactical" then
-            kept[#kept + 1] = raw_tokens[i]
-        elseif lbl == "neutral" and has_tactical then
+        if lbl ~= "attack" then
             kept[#kept + 1] = raw_tokens[i]
         end
     end

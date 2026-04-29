@@ -147,12 +147,21 @@ Sarcasm-only handling (no other attack labels): `whole_message_preserved=true`, 
 
 ```
 if whole_message_preserved:  emit "[ToxEdit] " + msg verbatim
-else:                        emit "[ToxEdit] " + tokens whose label != "attack"
-                             — but if no tactical token exists in the message,
-                             drop neutral tokens too (neutrals only travel with
-                             adjacent tactical content)
+else:                        emit "[ToxEdit] " + every token whose label != "attack"
+                             (i.e. tactical AND neutral both preserve)
 empty body:                  emit "[ToxEdit]" (bare)
 ```
+
+**Disposition rule (load-bearing — don't regress).** Tokens fall into more dispositions than just attack/tactical/drop:
+
+- **Attack** → drop. Confidently identified attack content.
+- **Tactical** → preserve. Mechanic/direction/imperative/numeric content.
+- **Neutral inside an attack span** → already relabeled `attack` by the classifier's outward absorption walk in Passes 3/4. Drops for free.
+- **Neutral outside both spans** → preserve. This is real chat signal — affirmatives (`okay`, `whatever`, `gg`, `ty`, `np`, `lol`, `kk`, `sure`, `fine`), banter, the user's own commentary on a filtered message — and stripping it loses information the user wants to see.
+
+Conservatism direction: drop only what we're confident is attack content; preserve everything else. The earlier Sprint 2 rule ("if no tactical token exists in the message, drop neutrals too") got this backwards — it was fixed mid-Sprint when in-game testing surfaced `placeholder_slur_c whatever` rendering as bare `[ToxEdit]` instead of `[ToxEdit] whatever`. Future passes that touch Rewrite must keep the disposition asymmetric: drop is the exceptional path, preserve is the default.
+
+Practical consequence: if the classifier under-absorbs a token that *should* have been part of an attack span (e.g. `worst healer ever` — `ever` survives because it's not in the absorption-list), the right fix is to extend the absorption list in Patterns/Classifier, not to make Rewrite drop neutrals more aggressively. That's Sprint 7 tuning.
 
 ### Attack-span vs winning-category decoupling (load-bearing)
 
@@ -160,7 +169,7 @@ When a rule hit (e.g. slur) sits inside a classifier-detected role-attack scaffo
 
 ### Test corpus and harness
 
-- Corpus: `corpus/sprint2.json`. 59 entries across 14 buckets covering role-attacks (whole-message and tactical-preserving), sarcasm (clear and earnest-praise lookalikes), slurs (whole-message and tactical-preserving), harassment, harm-invocation, multi-hit, pass-through banter/role-noun-no-modifier, intensifier-in-tactical-context, and Sprint 0 fixture regression. All attack content uses placeholder slugs from `sensitive/*.txt`. Real wordlists are populated off-platform — the same content policy as Sprint 1.
+- Corpus: `corpus/sprint2.json`. 64 entries across 15 buckets covering role-attacks (whole-message and tactical-preserving), sarcasm (clear and earnest-praise lookalikes), slurs (whole-message and tactical-preserving), harassment, harm-invocation, multi-hit, pass-through banter/role-noun-no-modifier, intensifier-in-tactical-context, neutral-outside-attack regression (the `ns_*` block, locking in the disposition-rule fix), and Sprint 0 fixture regression. All attack content uses placeholder slugs from `sensitive/*.txt`. Real wordlists are populated off-platform — the same content policy as Sprint 1.
 - Harness: `./scripts/run-corpus.sh`. Pure-Lua: loads the addon's actual modules (Hash, Normalize, Categories, Patterns, RuleData, Classifier, Rewrite, RuleEngine) under a minimal WoW-API stub (just `bit.bxor`). Python is used only to convert the JSON corpus to a Lua table — no rule-engine logic in Python, so no parity drift.
 - Output: per-category catch / category-correct rates, pass-through false-positive rate, rewrite exact-match rate. Sprint 2 ships at 100% across the board against the seeded corpus.
 - **No threshold gate in Sprint 2** — measurement only. Build 1 Sprint 7 introduces enforcement (locked targets: slur ≥98%, role_attack ≥90%, harm_invocation ≥95%, identity_attack ≥90%, harassment ≥70%, general_hostility ≥60%, rewrite correctness ≥90%).
@@ -170,7 +179,8 @@ When a rule hit (e.g. slur) sits inside a classifier-detected role-attack scaffo
 - **Sarcasm vs earnest praise:** `great job, einstein` flags; `great job!` doesn't. The discriminator is the intelligence-mocking noun. Earnest "great job, hero!" would also flag (because `hero` is in `INTELLIGENCE_MOCKING`); acceptable per the design (false-positive cost = `[ToxEdit]` tag on a kind message — annoying, not destructive).
 - **`thanks for the carry`** is tagged `known_fuzzy` in the corpus — passive-aggressive thanks pattern fires on it, but it can be genuinely thankful. Default behavior: flag as harassment with body preserved.
 - **Spec-name attacks:** mechanic words (fire, frost, shadow, holy, arcane) are tactical-only by default, so `you fire mage suck` won't fire role-attack on the `fire mage` substring. Acceptable Sprint 2 false-negative; revisit if corpus shows it matters.
-- **Standalone neg-modifiers without role/you context** (`moron` alone) pass through — by design, per the tactical-context refinement.
+- **Standalone neg-modifiers without role/you context** (`moron` alone) pass through — by design, per the tactical-context refinement. Same applies to mocking words mixed with a slur but no role/you anchor (`placeholder_slur_c moron` → `[ToxEdit] moron`); the slur drops, the standalone modifier survives until Sprint 7 expands absorption.
+- **Under-absorbed neutrals at attack-span edges** (`worst healer ever` → `ever` survives; hypothetically `you're hopeless` → `hopeless` survives if not in NEG_MODIFIERS). The disposition rule is correct (preserve neutrals outside spans); the gap is in the absorption-list / NEG_MODIFIERS coverage. Sprint 7 tuning, not a Rewrite-side fix.
 - **`tank`/`heal` as imperative verbs** ("tank the boss") aren't recognized as tactical; "tank" stays role-noun. Acceptable false-negative.
 
 ### Slash command additions
