@@ -46,7 +46,7 @@ WSL Ubuntu 24.04 → Windows WoW client.
 4. In-game `/reload` (manual — addon never triggers /reload itself).
 5. Test in a chat-eligible context.
 
-## Current state — Build 0 Sprint 1
+## Current state — Build 0 Sprint 2
 
 Rule engine in place. Real chat is tokenized → normalized → hashed → looked up in a static rule table; matching tokens dispatch through the same four handling modes Sprint 0 built. Sprint 0 fixtures still work as fallback (rule engine runs first; fixtures only fire when no rule matches).
 
@@ -119,13 +119,78 @@ Blizzard's Midnight expansion restricts addon code execution during boss encount
 
 **Known gap, mid-encounter reload:** if the user `/reload`s during an active encounter, `ENCOUNTER_START` won't re-fire and `isPaused` will be `false` (incorrectly). Sprint 0 doesn't address this. Persistence in Sprint 3 might inform a fix.
 
+## Sprint 2: classifier + surgical rewrite + corpus harness
+
+**Status: complete.**
+
+Three modules sit on top of Sprint 1's rule engine:
+
+- `addon/Patterns.lua` — pure data: role nouns, negative modifiers, intensifiers, you-pronouns, neutral fillers, tactical markers, intelligence-mocking nouns, antonymic-praise / passive-thanks / conditional-blame phrase triggers.
+- `addon/Classifier.lua` — labels each token `attack` / `tactical` / `neutral` and records signals.
+- `addon/Rewrite.lua` — drops attack-labeled tokens, preserves tactical and (when tactical exists) neutral tokens, prefixes `[ToxEdit]`.
+
+`RuleEngine.classify` runs the classifier on every message — even with zero rule hits — and now returns `{handling, category, severity, hits, all_hits, raw_tokens, normalized_tokens, labels, signals, whole_message_preserved}`. `buildEditMessage` is now a one-line wrapper around `Rewrite.rewrite`.
+
+### Classifier patterns
+
+The classifier walks five passes:
+
+1. **Tactical markers.** Mechanic/direction/imperative/numeric tokens labeled `tactical`. Tactical wins on overlap with role nouns (documented spec-name false-negative — see "fire mage" caveat below).
+2. **Rule hits.** Every rule-data hit labeled `attack` (unless already tactical).
+3. **Role-attack pattern.** For each role-noun token, search ±3 window for a trigger (rule hit or `NEG_MODIFIER`). **Critical refinement:** the trigger is invalid if any tactical token sits between it and the role noun — negative modifiers in tactical context are intensification, not attack. So `fucking trash tank` fires role_attack; `fucking move out of fire` stays pass-through. When valid, mark the span attack and absorb adjacent you-pronouns, neutral fillers, intensifiers, and other neg-modifiers/mocking-nouns outward (still blocked by tactical).
+4. **You-pronoun pattern.** Same shape as role-attack but the anchor is a `YOU_PRONOUN` and triggers include `INTELLIGENCE_MOCKING`. Suggested category: `harassment`. Same tactical-blocking rule.
+5. **Sarcasm signals (no relabeling).** Flags `sarcasm_antonymic_praise` (great/nice/good + job/play/work/... + intelligence-mocking noun), `sarcasm_passive_thanks` (`thanks for the wipe`-style), `sarcasm_slash_s` (literal `/s`), `sarcasm_maybe_try` (`maybe try`/`have you tried`/`ever heard of`).
+
+Sarcasm-only handling (no other attack labels): `whole_message_preserved=true`, `category=harassment`, `handling=edit`. Rewrite emits `[ToxEdit] <body>` verbatim, since the rhetorical attack is the whole utterance.
+
+### Surgical rewrite algorithm
+
+```
+if whole_message_preserved:  emit "[ToxEdit] " + msg verbatim
+else:                        emit "[ToxEdit] " + tokens whose label != "attack"
+                             — but if no tactical token exists in the message,
+                             drop neutral tokens too (neutrals only travel with
+                             adjacent tactical content)
+empty body:                  emit "[ToxEdit]" (bare)
+```
+
+### Attack-span vs winning-category decoupling (load-bearing)
+
+When a rule hit (e.g. slur) sits inside a classifier-detected role-attack scaffold, the rule winner determines `result.category` (severity-based tiebreak), but the classifier's `labels` are the source of truth for Rewrite. So `you're a placeholder_slur_c tank` resolves to `category=slur, handling=edit`, with the entire `you're a placeholder_slur_c tank` span labeled attack — Rewrite strips the whole scaffold to `[ToxEdit]`. Future sprints must not couple attack-span identification to winning-category; they're orthogonal.
+
+### Test corpus and harness
+
+- Corpus: `corpus/sprint2.json`. 59 entries across 14 buckets covering role-attacks (whole-message and tactical-preserving), sarcasm (clear and earnest-praise lookalikes), slurs (whole-message and tactical-preserving), harassment, harm-invocation, multi-hit, pass-through banter/role-noun-no-modifier, intensifier-in-tactical-context, and Sprint 0 fixture regression. All attack content uses placeholder slugs from `sensitive/*.txt`. Real wordlists are populated off-platform — the same content policy as Sprint 1.
+- Harness: `./scripts/run-corpus.sh`. Pure-Lua: loads the addon's actual modules (Hash, Normalize, Categories, Patterns, RuleData, Classifier, Rewrite, RuleEngine) under a minimal WoW-API stub (just `bit.bxor`). Python is used only to convert the JSON corpus to a Lua table — no rule-engine logic in Python, so no parity drift.
+- Output: per-category catch / category-correct rates, pass-through false-positive rate, rewrite exact-match rate. Sprint 2 ships at 100% across the board against the seeded corpus.
+- **No threshold gate in Sprint 2** — measurement only. Build 1 Sprint 7 introduces enforcement (locked targets: slur ≥98%, role_attack ≥90%, harm_invocation ≥95%, identity_attack ≥90%, harassment ≥70%, general_hostility ≥60%, rewrite correctness ≥90%).
+
+### Known false-positive / false-negative risks
+
+- **Sarcasm vs earnest praise:** `great job, einstein` flags; `great job!` doesn't. The discriminator is the intelligence-mocking noun. Earnest "great job, hero!" would also flag (because `hero` is in `INTELLIGENCE_MOCKING`); acceptable per the design (false-positive cost = `[ToxEdit]` tag on a kind message — annoying, not destructive).
+- **`thanks for the carry`** is tagged `known_fuzzy` in the corpus — passive-aggressive thanks pattern fires on it, but it can be genuinely thankful. Default behavior: flag as harassment with body preserved.
+- **Spec-name attacks:** mechanic words (fire, frost, shadow, holy, arcane) are tactical-only by default, so `you fire mage suck` won't fire role-attack on the `fire mage` substring. Acceptable Sprint 2 false-negative; revisit if corpus shows it matters.
+- **Standalone neg-modifiers without role/you context** (`moron` alone) pass through — by design, per the tactical-context refinement.
+- **`tank`/`heal` as imperative verbs** ("tank the boss") aren't recognized as tactical; "tank" stays role-noun. Acceptable false-negative.
+
+### Slash command additions
+
+- `/tox classify <msg>` prints attack/tactical span breakdown and classifier signals.
+- `/tox rewrite <msg>` runs the full pipeline and prints the rendered output.
+
+The original four (`status`, `version`, `rules`, `test`) keep working unchanged.
+
+### Sprint 7 reminder
+
+Corpus growth and measurement only matter at the gate. When wordlists are real, expand `corpus/sprint2.json` (or a successor) and wire the harness's stats into a CI failure threshold per the locked targets above.
+
 ## What's out of scope per sprint
 
 - Sprint 0 (done): skeleton + four-mode dispatcher + Midnight pause logic.
-- Sprint 1 (now): rule engine, hash table lookup, encoded rule data, real categories.
-- Sprint 2 adds: constructive-vs-hostile classifier, real surgical rewrite logic, populated phrase rules, test corpus harness.
+- Sprint 1 (done): rule engine, hash table lookup, encoded rule data, real categories.
+- Sprint 2 (done): constructive-vs-hostile classifier, surgical rewrite, test corpus harness.
 - Sprint 3 (Build 1) adds: AceDB / SavedVariables, whisper toggle, per-user category-handling overrides.
-- Build 1 also brings configuration UI.
+- Build 1 also brings configuration UI and Sprint 7's threshold gate.
 - Build 2 is the companion app.
 
 Don't pre-build any of these. Each sprint validates a layer; later sprints add functionality on top.

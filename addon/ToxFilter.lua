@@ -1,11 +1,11 @@
--- ToxFilter — Sprint 1.
+-- ToxFilter — Sprint 2.
 -- Live path is deterministic only; no LLM, no network, no automation.
 -- Display-only modification of the user's own chat frame.
 
 local _, ns = ...
 
 local ADDON_NAME = "ToxFilter"
-local VERSION = "0.0.2-sprint1"
+local VERSION = "0.0.3-sprint2"
 
 local ToxFilter = LibStub("AceAddon-3.0"):NewAddon(
     ADDON_NAME,
@@ -206,6 +206,64 @@ local function printTest(rest)
     print(line)
 end
 
+local function spanByLabel(raw_tokens, labels, target)
+    if not raw_tokens or not labels then return "" end
+    local out = {}
+    for i = 1, #raw_tokens do
+        if (labels[i] or "neutral") == target then
+            out[#out + 1] = raw_tokens[i]
+        end
+    end
+    return table.concat(out, " ")
+end
+
+local function signalsList(signals)
+    local list = {}
+    if signals then
+        for k, v in pairs(signals) do
+            if v then list[#list + 1] = k end
+        end
+    end
+    table.sort(list)
+    return list
+end
+
+local function printClassify(rest)
+    if not rest or rest == "" then
+        print("[ToxFilter] Usage: /tox classify <message>")
+        return
+    end
+    local result = ns.RuleEngine.classify(rest)
+    local cat = result.category or "pass"
+    local attack   = spanByLabel(result.raw_tokens, result.labels, "attack")
+    local tactical = spanByLabel(result.raw_tokens, result.labels, "tactical")
+    local sigs = signalsList(result.signals)
+    local sig_str = (#sigs == 0) and "(none)" or table.concat(sigs, ", ")
+    print("[ToxFilter] Classify: '" .. rest .. "' → " .. cat
+          .. " | attack: '" .. attack .. "'"
+          .. " | tactical: '" .. tactical .. "'"
+          .. " | signals: " .. sig_str)
+end
+
+local function printRewrite(rest)
+    if not rest or rest == "" then
+        print("[ToxFilter] Usage: /tox rewrite <message>")
+        return
+    end
+    local result = ns.RuleEngine.classify(rest)
+    local rendered
+    if result.handling == "silent" then
+        rendered = "(silent — line would not render)"
+    elseif result.handling == "del" then
+        rendered = ns.RuleEngine.buildDeleteLabel(result)
+    elseif result.handling == "edit" then
+        rendered = ns.Rewrite.rewrite(rest, result)
+    else
+        rendered = "(pass-through) " .. rest
+    end
+    print("[ToxFilter] Rewrite: '" .. rest .. "' → '" .. rendered .. "'")
+end
+
 function ToxFilter:OnSlashCommand(input)
     input = input and input:match("^%s*(.-)%s*$") or ""
     local sub, rest = input:match("^(%S+)%s*(.*)$")
@@ -224,7 +282,12 @@ function ToxFilter:OnSlashCommand(input)
         printRules()
     elseif sub == "test" then
         printTest(rest)
+    elseif sub == "classify" then
+        printClassify(rest)
+    elseif sub == "rewrite" then
+        printRewrite(rest)
     else
-        print("[ToxFilter] Commands: /tox status | /tox version | /tox rules | /tox test <message>")
+        print("[ToxFilter] Commands: /tox status | /tox version | /tox rules"
+              .. " | /tox test <message> | /tox classify <message> | /tox rewrite <message>")
     end
 end
