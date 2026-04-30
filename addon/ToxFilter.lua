@@ -1,11 +1,16 @@
--- ToxFilter — Sprint 2.
+-- ToxFilter — Build 1 Sprint 3.
 -- Live path is deterministic only; no LLM, no network, no automation.
 -- Display-only modification of the user's own chat frame.
+--
+-- Sprint 3 layers persistence (AceDB-3.0 in addon/Libs/AceDB-3.0/) plus a
+-- master toggle, per-channel toggles, category-handling overrides, role
+-- preference, user blacklist/whitelist, and a whisper hook (default OFF).
+-- chatFilter dispatch order is master → channel → rule engine → fixtures.
 
 local _, ns = ...
 
 local ADDON_NAME = "ToxFilter"
-local VERSION = "0.0.3-sprint2"
+local VERSION = "0.0.4-sprint3-fix1"
 
 local ToxFilter = LibStub("AceAddon-3.0"):NewAddon(
     ADDON_NAME,
@@ -13,7 +18,9 @@ local ToxFilter = LibStub("AceAddon-3.0"):NewAddon(
     "AceEvent-3.0"
 )
 
--- Incoming group/raid/instance/BG channels. Whisper deferred to Sprint 3.
+-- Group/raid/instance/BG channels. CHAT_MSG_WHISPER is registered separately
+-- because its visibility is gated by the user's per-channel whisper toggle
+-- (default OFF, the user opts in deliberately for private 1:1 messages).
 local CHAT_EVENTS = {
     "CHAT_MSG_PARTY",
     "CHAT_MSG_PARTY_LEADER",
@@ -24,6 +31,24 @@ local CHAT_EVENTS = {
     "CHAT_MSG_INSTANCE_CHAT_LEADER",
     "CHAT_MSG_BATTLEGROUND",
     "CHAT_MSG_BATTLEGROUND_LEADER",
+}
+
+local WHISPER_EVENT = "CHAT_MSG_WHISPER"
+-- Intentionally NOT hooked: CHAT_MSG_WHISPER_INFORM is the user's own outgoing
+-- whispers; filtering them would be self-censorship of typed text.
+
+-- event name → user-facing channel key in db.channels.
+local EVENT_TO_CHANNEL = {
+    CHAT_MSG_PARTY                  = "party",
+    CHAT_MSG_PARTY_LEADER           = "party",
+    CHAT_MSG_RAID                   = "raid",
+    CHAT_MSG_RAID_LEADER            = "raid",
+    CHAT_MSG_RAID_WARNING           = "raid",
+    CHAT_MSG_INSTANCE_CHAT          = "instance",
+    CHAT_MSG_INSTANCE_CHAT_LEADER   = "instance",
+    CHAT_MSG_BATTLEGROUND           = "battleground",
+    CHAT_MSG_BATTLEGROUND_LEADER    = "battleground",
+    CHAT_MSG_WHISPER                = "whisper",
 }
 
 -- Sprint 0 hardcoded test triggers, kept as architectural-validation fixtures.
@@ -38,7 +63,11 @@ local FIXTURE_EDIT_PREFIX   = "[ToxEdit] "
 
 local isPaused = false
 
--- ===== Sprint 0 fixture handlers (unchanged from Sprint 0) =====
+-- Expose addon-internal state Commands.lua needs without giving it write access.
+ns.ToxFilterAddon = { VERSION = VERSION }
+ns.ToxFilterState = { isPaused = function() return isPaused end }
+
+-- ===== Sprint 0 fixture handlers (unchanged) =====
 
 local function fixtureSurgicalRewrite(msg)
     local body = msg:gsub(TRIGGER_EDIT, "")
@@ -68,21 +97,29 @@ end
 
 -- ===== Chat filter dispatch =====
 
--- Order: rule engine → Sprint 0 fixtures → pass-through. Rule engine wins on
--- collision so a real rule hit is never overridden by a fixture trigger.
--- Returns per ChatFrame_AddMessageEventFilter contract:
---   true                       -> suppress entirely
---   false                      -> display unchanged
---   false, newMsg, ...         -> display with rewritten msg, other args preserved
-local function chatFilter(_chatFrame, _event, msg, ...)
-    if isPaused then
-        return false
-    end
-    if type(msg) ~= "string" or msg == "" then
-        return false
+-- Sprint 3 dispatch order:
+--   1. Paused (Midnight combat window) → pass through
+--   2. Master toggle off                → pass through
+--   3. Per-channel toggle off            → pass through (covers fixtures too)
+--   4. RuleEngine.classify with handling override resolver
+--      ├─ user whitelist suppresses rule hits during lookup
+--      └─ user blacklist synthesizes general_hostility hits during lookup
+--   5. Sprint 0 fixtures (fallback when rule engine returns pass)
+local function chatFilter(_chatFrame, event, msg, ...)
+    if isPaused then return false end
+    if type(msg) ~= "string" or msg == "" then return false end
+
+    local db = ns.Database and ns.Database:Get()
+    if db then
+        if not db.enabled then return false end
+        local channel = EVENT_TO_CHANNEL[event]
+        if channel and db.channels[channel] == false then
+            return false
+        end
     end
 
-    local result = ns.RuleEngine.classify(msg)
+    local resolver = (ns.Database and function(cat) return ns.Database:ResolveHandling(cat) end) or nil
+    local result = ns.RuleEngine.classify(msg, resolver)
     if result.handling == "silent" then
         return true
     elseif result.handling == "del" then
@@ -127,12 +164,30 @@ local function validateRuleData()
     end
 end
 
+-- Sanity check: every event in CHAT_EVENTS / WHISPER_EVENT must map to a known
+-- channel key. Catches typos at load instead of when a user runs /tox channel.
+local function validateChannelMap()
+    local known = { party = true, raid = true, instance = true, battleground = true, whisper = true }
+    for _, ev in ipairs(CHAT_EVENTS) do
+        local ch = EVENT_TO_CHANNEL[ev]
+        assert(ch and known[ch], "[ToxFilter] EVENT_TO_CHANNEL missing or unknown for " .. ev)
+    end
+    assert(EVENT_TO_CHANNEL[WHISPER_EVENT] == "whisper",
+           "[ToxFilter] EVENT_TO_CHANNEL missing whisper mapping")
+end
+
+function ToxFilter:OnInitialize()
+    validateChannelMap()
+    if ns.Database then ns.Database:Init() end
+end
+
 function ToxFilter:OnEnable()
     validateRuleData()
 
     for _, event in ipairs(CHAT_EVENTS) do
         ChatFrame_AddMessageEventFilter(event, chatFilter)
     end
+    ChatFrame_AddMessageEventFilter(WHISPER_EVENT, chatFilter)
 
     self:RegisterEvent("ENCOUNTER_START", "OnPauseEvent")
     self:RegisterEvent("ENCOUNTER_END", "OnResumeEvent")
@@ -149,6 +204,7 @@ function ToxFilter:OnDisable()
     for _, event in ipairs(CHAT_EVENTS) do
         ChatFrame_RemoveMessageEventFilter(event, chatFilter)
     end
+    ChatFrame_RemoveMessageEventFilter(WHISPER_EVENT, chatFilter)
 end
 
 function ToxFilter:OnPauseEvent()
@@ -159,135 +215,8 @@ function ToxFilter:OnResumeEvent()
     setPaused(false)
 end
 
--- ===== Slash command =====
-
-local function printRules()
-    if not ns.RuleData then
-        print("[ToxFilter] Rule data not loaded")
-        return
-    end
-    print("[ToxFilter] Rule data: " .. ns.RuleData.hash_version
-          .. " / " .. ns.RuleData.normalization_version)
-    print("[ToxFilter] Generated: " .. (ns.RuleData.generated_at or "unknown"))
-    print("[ToxFilter] Words: " .. ns.RuleData.stats.word_count
-          .. ", Phrases: " .. ns.RuleData.stats.phrase_count)
-
-    local counts = {}
-    for _, entry in pairs(ns.RuleData.words) do
-        counts[entry.category] = (counts[entry.category] or 0) + 1
-    end
-    local parts = {}
-    for cat, n in pairs(counts) do
-        parts[#parts + 1] = cat .. "=" .. n
-    end
-    table.sort(parts)
-    if #parts > 0 then
-        print("[ToxFilter] By category: " .. table.concat(parts, ", "))
-    end
-end
-
-local function printTest(rest)
-    if not rest or rest == "" then
-        print("[ToxFilter] Usage: /tox test <message>")
-        return
-    end
-    local result = ns.RuleEngine.classify(rest)
-    local line = "[ToxFilter] Test result: '" .. rest .. "' → " .. result.handling
-    if result.category then
-        local extra = ""
-        local others = (result.hits or 1) - 1
-        if others == 1 then
-            extra = ", +1 other hit"
-        elseif others > 1 then
-            extra = ", +" .. others .. " other hits"
-        end
-        line = line .. " (" .. result.category .. extra .. ")"
-    end
-    print(line)
-end
-
-local function spanByLabel(raw_tokens, labels, target)
-    if not raw_tokens or not labels then return "" end
-    local out = {}
-    for i = 1, #raw_tokens do
-        if (labels[i] or "neutral") == target then
-            out[#out + 1] = raw_tokens[i]
-        end
-    end
-    return table.concat(out, " ")
-end
-
-local function signalsList(signals)
-    local list = {}
-    if signals then
-        for k, v in pairs(signals) do
-            if v then list[#list + 1] = k end
-        end
-    end
-    table.sort(list)
-    return list
-end
-
-local function printClassify(rest)
-    if not rest or rest == "" then
-        print("[ToxFilter] Usage: /tox classify <message>")
-        return
-    end
-    local result = ns.RuleEngine.classify(rest)
-    local cat = result.category or "pass"
-    local attack   = spanByLabel(result.raw_tokens, result.labels, "attack")
-    local tactical = spanByLabel(result.raw_tokens, result.labels, "tactical")
-    local sigs = signalsList(result.signals)
-    local sig_str = (#sigs == 0) and "(none)" or table.concat(sigs, ", ")
-    print("[ToxFilter] Classify: '" .. rest .. "' → " .. cat
-          .. " | attack: '" .. attack .. "'"
-          .. " | tactical: '" .. tactical .. "'"
-          .. " | signals: " .. sig_str)
-end
-
-local function printRewrite(rest)
-    if not rest or rest == "" then
-        print("[ToxFilter] Usage: /tox rewrite <message>")
-        return
-    end
-    local result = ns.RuleEngine.classify(rest)
-    local rendered
-    if result.handling == "silent" then
-        rendered = "(silent — line would not render)"
-    elseif result.handling == "del" then
-        rendered = ns.RuleEngine.buildDeleteLabel(result)
-    elseif result.handling == "edit" then
-        rendered = ns.Rewrite.rewrite(rest, result)
-    else
-        rendered = "(pass-through) " .. rest
-    end
-    print("[ToxFilter] Rewrite: '" .. rest .. "' → '" .. rendered .. "'")
-end
-
 function ToxFilter:OnSlashCommand(input)
-    input = input and input:match("^%s*(.-)%s*$") or ""
-    local sub, rest = input:match("^(%S+)%s*(.*)$")
-    sub = sub or ""
-    rest = rest or ""
-
-    if sub == "status" then
-        if isPaused then
-            print("[ToxFilter] Paused — combat window")
-        else
-            print("[ToxFilter] Active")
-        end
-    elseif sub == "version" then
-        print("[ToxFilter] Version " .. VERSION)
-    elseif sub == "rules" then
-        printRules()
-    elseif sub == "test" then
-        printTest(rest)
-    elseif sub == "classify" then
-        printClassify(rest)
-    elseif sub == "rewrite" then
-        printRewrite(rest)
-    else
-        print("[ToxFilter] Commands: /tox status | /tox version | /tox rules"
-              .. " | /tox test <message> | /tox classify <message> | /tox rewrite <message>")
+    if ns.Commands then
+        ns.Commands.dispatch(input)
     end
 end

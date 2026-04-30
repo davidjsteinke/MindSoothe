@@ -9,6 +9,10 @@ read_globals = {
     "ChatFrame_AddMessageEventFilter",
     "ChatFrame_RemoveMessageEventFilter",
 
+    -- Spec / role detection (Sprint 3 role auto-detect)
+    "GetSpecializationRole",
+    "GetSpecialization",
+
     -- Ace3
     "LibStub",
 
@@ -16,7 +20,14 @@ read_globals = {
     "bit",
 }
 
+globals = {
+    -- SavedVariables global; AceDB:New manages it but Database.lua touches
+    -- it directly for corruption recovery.
+    "ToxFilterDB",
+}
+
 ignore = {
+    "211",  -- unused local (intentional migration placeholder funcs)
     "212",  -- unused argument (chat filter args we deliberately drop)
     "213",  -- unused loop variable
 }

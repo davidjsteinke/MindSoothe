@@ -4,13 +4,13 @@ Working name. Pre-release. World of Warcraft addon that filters incoming group/r
 
 ## Status
 
-Build 0 Sprint 2. Rule engine + classifier + surgical rewrite in place, running on placeholder wordlists. Architecture is validated; real wordlists are populated off-platform from sources the developer selects.
+Build 1 Sprint 3. Persistence (AceDB-3.0, account-wide), full slash-command suite, and an opt-in whisper hook now sit on top of the Build 0 rule engine + classifier + surgical rewrite. Real wordlists are populated off-platform.
 
 ## What it does today
 
-The addon hooks incoming chat in PARTY, RAID, INSTANCE_CHAT, and BATTLEGROUND channels (and their leader/warning variants). Each message is tokenized, normalized (lowercase, punctuation stripped, repetition collapsed, leetspeak normalized), hashed, and looked up in a static rule table. The classifier then identifies attack-context tokens (role-noun + negative modifier, you-pronoun + negative modifier) and tactical-content tokens (mechanic and direction words), so the rewrite preserves tactical meaning while dropping the hostile scaffold.
+The addon hooks incoming chat in PARTY, RAID, INSTANCE_CHAT, BATTLEGROUND, and (opt-in) WHISPER channels. Each message is tokenized, normalized (lowercase, punctuation stripped, repetition collapsed, leetspeak normalized), hashed, and looked up in a static rule table. The classifier identifies attack-context tokens (role-noun + negative modifier, you-pronoun + negative modifier) and tactical-content tokens (mechanic and direction words), so the rewrite preserves tactical meaning while dropping the hostile scaffold. User blacklist entries surface as `general_hostility` rule hits; whitelist entries suppress rule matching for that token.
 
-Four handling modes:
+Four handling modes per category, user-overridable via `/tox handle`:
 
 - **Pass** — message displays unchanged.
 - **Edit** — `[ToxEdit] ` is prefixed and the attack span is removed; tactical content is preserved. When the entire message is attack with no tactical content, only `[ToxEdit]` displays.
@@ -32,14 +32,41 @@ The rule engine runs first, so a real rule hit always wins over a fixture trigge
 
 The addon pauses filtering during boss encounters and Mythic+ pulls (Blizzard restricts addon code execution during these windows). When paused, all messages pass through unchanged. You'll see one chat-frame line when paused and one when filtering resumes.
 
+## Whisper filtering — default OFF
+
+`CHAT_MSG_WHISPER` is hooked but the whisper channel toggle defaults to `off`. Whispers are private 1:1 messages and the user's expectation is privacy. Turning whisper filtering on is the user opting into filtering their private conversations, which is their right but should be a deliberate choice. The first time you run `/tox channel whisper on`, a one-line privacy note prints to confirm the choice. Outgoing whispers (`CHAT_MSG_WHISPER_INFORM`) are never hooked — text the user typed is never filtered.
+
 ## Slash commands
 
-- `/tox status` — shows `Active` or `Paused — combat window`
-- `/tox version` — shows the addon version
-- `/tox rules` — shows rule-data version, generation timestamp, and rule counts per category
-- `/tox test <message>` — runs `<message>` through the rule engine and prints what handling it would receive, without rendering it. Format: `[ToxFilter] Test result: '<input>' → <handling> (<category>, +N other hits)` if multiple rules hit.
-- `/tox classify <message>` — prints the classifier's attack/tactical span breakdown plus signals, e.g. `Classify: 'move out of fire you trash tank' → role_attack | attack: 'you trash tank' | tactical: 'move out of fire' | signals: role_label_modifier`.
-- `/tox rewrite <message>` — runs the full pipeline (rule engine → classifier → rewrite) and prints the rendered output, e.g. `Rewrite: 'move out of fire you trash tank' → '[ToxEdit] move out of fire'`.
+Run `/tox help` for the grouped summary or `/tox help <command>` for details on a specific command.
+
+**Filtering:**
+- `/tox on` / `/tox off` — master toggle.
+- `/tox status` — Active, Disabled, or Paused (combat window). Reports a soft-disabled state when every category is set to `pass`.
+
+**Channels:**
+- `/tox channel <name> on|off` — toggle one of `party`, `raid`, `instance`, `battleground`, `whisper`.
+- `/tox channel list` — show all channel states.
+
+**Category handling:**
+- `/tox handle <category> <pass|edit|del|silent>` — override default handling.
+- `/tox handle list` — show current map.
+- Categories: `identity_attack`, `slur`, `role_attack`, `harassment`, `harm_invocation`, `general_hostility`.
+
+**Role:**
+- `/tox role <auto|tank|healer|dps>` — set or override role. `auto` uses `GetSpecializationRole()`. The role setting is persisted now; role-aware behaviors arrive in Sprint 5.
+
+**User lists:**
+- `/tox blacklist add|remove|list <word>` — user-added words match as `general_hostility` severity 5.
+- `/tox whitelist add|remove|list <word>` — exempt a word from rule-engine matching.
+- Both lists are stored hashed (FNV-1a); the entry's normalized plaintext is kept alongside the hash for `list` output.
+
+**Inspect:**
+- `/tox version`, `/tox rules`, `/tox list`, `/tox test <msg>`, `/tox classify <msg>`, `/tox rewrite <msg>`.
+
+## Persistence
+
+Settings are stored via AceDB-3.0 in account-wide scope (`ToxFilterDB`). A schema-version migration framework is in place; future sprints add migrations as needed. If the SavedVariables file is corrupted, the addon resets to defaults and prints a single line to chat — no silent data loss.
 
 ## Install (dev)
 

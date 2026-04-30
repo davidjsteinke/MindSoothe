@@ -18,13 +18,15 @@ A World of Warcraft addon that filters incoming group/raid/instance/BG chat for 
 
 User-facing text — slash command output, system messages, errors, README — is simple, low-affect, factual. No cheerleading, no exclamation points beyond punctuation requirement. Surface facts; the user processes feelings. Strip an adjective if unsure.
 
+**Tonal-violation grep (permanent CI hygiene, every sprint).** Before declaring user-facing string changes done, grep the diff for `!`, `great`, `oops`, `sorry` in any string literal printed via `print(` or `out(`. These are the most common tonal-register violations and slip in easily when a sprint adds a lot of new output strings at once. The check is cheap; running it consistently keeps drift from accumulating.
+
 ## Repo layout
 
 ```
 addon/                  WoW addon source — what gets deployed
   ToxFilter.toc         TOC manifest, Interface 120005 (Midnight retail)
   ToxFilter.lua         Main addon code
-  Libs/                 Embedded Ace3 (LibStub, CallbackHandler, AceAddon, AceEvent, AceConsole)
+  Libs/                 Embedded Ace3 (LibStub, CallbackHandler, AceAddon, AceEvent, AceConsole, AceDB)
   README.md             Pre-release user-facing description
 app/                    Companion app (empty; Build 2)
 corpus/                 Test corpus (empty; later sprints)
@@ -194,12 +196,120 @@ The original four (`status`, `version`, `rules`, `test`) keep working unchanged.
 
 Corpus growth and measurement only matter at the gate. When wordlists are real, expand `corpus/sprint2.json` (or a successor) and wire the harness's stats into a CI failure threshold per the locked targets above.
 
+## Build 1 Sprint 3: persistence + full slash suite + whisper hook
+
+**Status: complete (initial Sprint 3 + fix1 patch).**
+
+**fix1 patch (version `0.0.4-sprint3-fix1`)** — in-game testing surfaced three issues fixed without a re-sprint:
+1. `/tox role auto` crashed because `GetSpecializationRole` requires a `specGroupIndex` from `GetSpecialization()`. `Database:GetEffectiveRole` now calls them in the correct order and tolerates `GetSpecialization()` returning nil for low-level chars / pre-spec-data login window.
+2. Help text rendered `<add|remove|list>` as `<addemove>` because WoW's chat parser consumes `|r` as a color-reset escape. All literal pipes in `print`-bound strings are now doubled (`||`); this is a permanent code-discipline rule (see Conventions).
+3. `/tox channel list` got a master-state header (`Channels (master: enabled):` / `... DISABLED:`) so it doesn't visually mislead when filtering is master-off but channels still show `on`.
+
+fix1 also added `default` as a fifth `<handling>` value (clears overrides) and an `/tox handle all <handling>` batch shorthand. Both documented in the Handle subsection below.
+
+Sprint 3 introduces the user-configuration layer. Storage backend is **AceDB-3.0** (now embedded under `addon/Libs/AceDB-3.0/`); account-wide scope only; profiles are not surfaced in the slash UI but the door is open for a future sprint. An explicit `migrations[N]` table layers schema-version migrations on top of AceDB's defaults system because explicit-and-readable beats implicit defaults-merging for long-term maintainability.
+
+### AceDB schema (top-level v1)
+
+```lua
+ToxFilterDB.global = {
+    schema_version      = 1,
+    enabled             = true,             -- master toggle
+    channels            = { party, raid, instance, battleground, whisper },  -- whisper default false
+    handling            = {},               -- category -> "pass"|"edit"|"del"|"silent" override; nil = use default
+    role                = "auto",
+    role_last_seen      = nil,              -- cache for GetSpecializationRole returning nil at login
+    blacklist           = {},               -- [hash] = normalized_plaintext
+    whitelist           = {},               -- [hash] = normalized_plaintext
+    whisper_intro_shown = false,            -- one-shot privacy note bit
+    -- reserved for later sprints (empty); shape stable
+    session_buffer = {}, pinned_moments = {}, stats = {}, feedback_log = {},
+}
+```
+
+### Migration pattern
+
+`migrations[N] = function(db) ... end` upgrades from v(N-1) to vN. `Database:Init()` walks `current+1 .. LATEST_SCHEMA_VERSION`, each call wrapped in `pcall` so a broken migration preserves the user's last good `schema_version` instead of corrupting forward. Sprint 3 ships `migrations[1]` as a no-op (initial schema). Future sprints append new entries; do not retroactively edit committed migrations.
+
+If `_G.ToxFilterDB` loaded as a non-table (corrupted file), Database.lua resets to defaults and prints a single chat line — never silently loses data, never crashes the addon.
+
+### Slash command catalog
+
+15 verbs total, grouped by purpose (run `/tox help` in-game for the live summary):
+
+| Group     | Commands |
+|-----------|----------|
+| Filtering | `/tox on`, `/tox off`, `/tox status` |
+| Channels  | `/tox channel <name> on\|off`, `/tox channel list` |
+| Handling  | `/tox handle <category> <pass\|edit\|del\|silent\|default>`, `/tox handle all <handling>`, `/tox handle list` |
+| Lists     | `/tox blacklist <add\|remove\|list> [word]`, `/tox whitelist <add\|remove\|list> [word]` |
+| Role      | `/tox role <auto\|tank\|healer\|dps>` |
+| Inspect   | `/tox version`, `/tox rules`, `/tox list`, `/tox test <msg>`, `/tox classify <msg>`, `/tox rewrite <msg>` |
+| Help      | `/tox help`, `/tox help <command>` |
+
+Bare `/tox` prints a compact one-line summary; `/tox help` is the grouped view; `/tox help <command>` gives details for one command.
+
+### Handle command — `default` and `all` (added in fix1)
+
+Two ergonomic additions on top of `pass|edit|del|silent`:
+
+- **`default`** — fifth accepted value for `<handling>`. Clears the override (`db.handling[cat] = nil`), making the resolver fall back to `Categories.HANDLING[cat]`. Architecturally, `default` is a **meta-handling**: it never reaches `RuleEngine.classify`'s resolver because the override is deleted before resolution runs. The resolver contract stays clean — it only ever sees `pass|edit|del|silent`. The split is enforced by `HANDLING_INPUT` (accepted at the slash-command boundary, includes `default`) vs `HANDLING_SET` (in-engine, no `default`).
+- **`all` shorthand** — `/tox handle all <handling>` applies a handling to every category in `CATEGORY_ORDER` in one call. Works with all five values, including `default` (resets every category at once). The silent-drop note is emitted **once** after the batch summary, not per-category, to avoid spam. The `all` keyword is parsed as a category-name special-case in `Commands.handle` and bypasses per-category-name validation.
+
+### Channel list master-state header (added in fix1)
+
+`/tox channel list` prints a single header line of the form `Channels (master: enabled):` or `Channels (master: DISABLED):` (uppercase deliberate when off) before the per-channel list. Per-channel toggles are independent of the master toggle, so showing all channels as `on` while filtering is globally off would be visually misleading. The `/tox list` comprehensive view already prints master state on its own line; only the dedicated channel-list view needed the header.
+
+### Whisper hook + default-OFF rationale
+
+`CHAT_MSG_WHISPER` is registered alongside the group/raid/instance/BG events but `db.channels.whisper` defaults to `false`. Whispers are private 1:1 communication; filtering them is a deliberate user opt-in, not a default. The first time the user runs `/tox channel whisper on`, a one-line privacy note prints (gated by `db.whisper_intro_shown`) and is never repeated. **`CHAT_MSG_WHISPER_INFORM` (the user's outgoing whispers) is intentionally NOT hooked** — text the user typed themselves is never filtered.
+
+### chatFilter dispatch order (Sprint 3 final)
+
+1. `isPaused` (Midnight combat window) → pass through
+2. `db.enabled == false` → pass through
+3. `db.channels[event_channel] == false` → pass through (covers Sprint 0 fixtures too — channel-off is total)
+4. `RuleEngine.classify(msg, handlingResolver)` — resolver consults `db.handling` for both multi-hit aggressiveness ranking and final dispatch, so the two stay consistent (a user setting slur=silent sees silent win, not a stale default-edit pick)
+   - During lookup: whitelist hash suppresses rule hits; blacklist hash synthesizes a `general_hostility` severity-5 hit when no rule already matched
+5. Sprint 0 fixtures (fallback when rule engine returns pass)
+
+The handling resolver is an optional second argument to `classify`. The corpus harness omits it → `Categories.HANDLING` defaults → harness behavior unchanged. `ns.UserRules` is also nil in the harness, so blacklist/whitelist branches are skipped there.
+
+### Soft-disabled state
+
+A user who sets every category to `pass` ends up with filtering effectively off even when `enabled=true`. `/tox status` and `/tox list` detect this state via `Database:AllCategoriesPass()` and report `Active — every category set to pass; filtering is effectively off` (status) or `state: soft-disabled (every category set to pass)` (list). Without this, the user could be confused why filtering appears off when they didn't run `/tox off`.
+
+### Blacklist / whitelist storage
+
+Map shape: `[hash] = normalized_plaintext`. The hash is the runtime-lookup key (matches RuleData's hash-keyed table); the normalized plaintext is stored alongside for `list` display. Adding `Foo` and adding `foo` collapse to the same entry, and `list` shows `foo` — the user removes by what they typed, normalization is invisible. Hashing keeps the hot-path lookup at O(1) regardless of list size and matches Policy #6 hygiene at the lookup-table level.
+
+### Role auto-detect
+
+Sprint 3 stores the role setting only; consumers arrive in Sprint 5. `Database:GetEffectiveRole()` resolves `"auto"` lazily via `GetSpecializationRole()` at read time (`TANK`/`HEALER`/`DAMAGER` mapped to `tank`/`healer`/`dps`). When the API returns nil (e.g. login window before specialization data is available) the resolver falls back to `db.role_last_seen`, which is updated whenever a successful auto-detect happens. The user always sees a deterministic role string in `/tox status` and `/tox list`.
+
+### Module layout (Sprint 3)
+
+```
+addon/
+  Database.lua    AceDB wiring, defaults, migrations, role resolver, soft-disable detector
+  UserRules.lua   blacklist/whitelist add/remove/list/lookup
+  Commands.lua    all slash handlers + grouped help dispatch (ToxFilter.lua delegates)
+  ToxFilter.lua   lifecycle, chatFilter dispatch, pause state, whisper-hook registration
+  RuleEngine.lua  classify(msg, handlingResolver) — accepts override resolver, consults ns.UserRules
+```
+
+### Hooks reserved for Sprint 4
+
+`db.session_buffer`, `db.pinned_moments`, `db.stats`, `db.feedback_log` exist as empty tables in the v1 schema. Sprint 4 populates them; no migration needed.
+
 ## What's out of scope per sprint
 
 - Sprint 0 (done): skeleton + four-mode dispatcher + Midnight pause logic.
 - Sprint 1 (done): rule engine, hash table lookup, encoded rule data, real categories.
 - Sprint 2 (done): constructive-vs-hostile classifier, surgical rewrite, test corpus harness.
-- Sprint 3 (Build 1) adds: AceDB / SavedVariables, whisper toggle, per-user category-handling overrides.
+- Sprint 3 (done, Build 1): AceDB / SavedVariables, whisper toggle, per-user category-handling overrides, full slash suite.
+- Sprint 4 adds: session buffer, positive-moment capture, pinned moments, stats; visual highlight (first UI element).
+- Sprint 5 adds: role-aware callout prioritization (consumes the role setting from Sprint 3).
 - Build 1 also brings configuration UI and Sprint 7's threshold gate.
 - Build 2 is the companion app.
 
@@ -212,6 +322,7 @@ Don't pre-build any of these. Each sprint validates a layer; later sprints add f
 - TOC paths use backslashes (Windows convention; WoW client accepts on both OSes).
 - Ace3 lives under `addon/Libs/` and is excluded from luacheck.
 - All user-visible chat output uses literal `[ToxFilter]` prefix via `print()` so the format is consistent regardless of where in the code it originates.
+- **Pipe characters in chat strings must be doubled** (`||`). WoW's chat-frame parser treats `|` as the lead-in for color escapes (`|cffrrggbb...|r`), hyperlinks (`|H...|h...|h`), textures (`|T...|t`), etc. A literal `|r` in your help text gets eaten as a color reset and the reader sees mangled output (e.g. `<add|remove|list>` displays as `<addemove>` with subsequent characters consumed too). Sprint 3 fix1 caught this in the help/usage strings — any new user-facing string containing pipes (e.g. `<a|b|c>` choice notation) must escape every pipe as `||`. Lua source-side string concatenation is unaffected; the doubling only matters where the chat parser sees the bytes.
 
 ## Things that are NOT in this repo
 
