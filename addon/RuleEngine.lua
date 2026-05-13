@@ -70,16 +70,24 @@ local function classify(msg, handlingResolver)
                     all_hits[#all_hits + 1] = hit
                     rule_hit_by_index[i] = hit
                 elseif UserRules and UserRules.blacklistEntry(token_hash) then
-                    -- User-added blacklist hit. Treated as general_hostility
-                    -- severity 5 — same shape as a rule hit so dispatch and
-                    -- rewrite paths handle it without special-casing.
+                    -- User-added blacklist hit. Sprint 4 fix Issue 4:
+                    -- handling is hardcoded to "edit" regardless of the
+                    -- general_hostility category default OR any user
+                    -- /tox handle override. Surgical rewrite is the
+                    -- respectful default for personally-flagged words —
+                    -- silently dropping them with del or silent is too
+                    -- aggressive. The category label stays general_hostility
+                    -- so any [ToxDel: ...] display path used elsewhere keeps
+                    -- the same labeling, but multi-hit aggressiveness
+                    -- ranking and final dispatch see "edit" because that's
+                    -- the field the engine reads.
                     local hit = {
                         raw         = raw_tokens[i],
                         normalized  = n,
                         index       = i,
                         category    = "general_hostility",
                         severity    = 5,
-                        handling    = handlingResolver("general_hostility"),
+                        handling    = "edit",
                         is_user     = true,
                     }
                     all_hits[#all_hits + 1] = hit

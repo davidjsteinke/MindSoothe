@@ -302,13 +302,409 @@ addon/
 
 `db.session_buffer`, `db.pinned_moments`, `db.stats`, `db.feedback_log` exist as empty tables in the v1 schema. Sprint 4 populates them; no migration needed.
 
+## Build 1 Sprint 4a: affirmative data layer + slash surfacing
+
+**Status: complete.** Sprint 4 was split: 4a ships everything observable via `/tox` chat output (data layer, pattern detection, slash commands, asymmetric surfacing). 4b ships the visual UI primitives (chat-line tint, animated breathing frame) and `/tox ready` meta-orchestration. Split rationale: 4a is in a regime we already understand (chat-frame output, slash dispatch); 4b is the project's first animated-frame work and is genuinely different.
+
+### Module layout
+
+```
+addon/
+  PIIScrub.lua         conservative name-context scrubber for buffer-stored content
+  Buffer.lua           session_buffer reads/writes/retention pruning, pinned moments
+  PositiveCapture.lua  pattern-based positive-moment detection + subscriber list
+  Stats.lua            asymmetric-display logic, week aggregation
+  Grounding.lua        slash-driven Y/N ritual state machine
+```
+
+### Schema (v2)
+
+`migrations[2]` backfills these top-level fields on existing v1 users; fresh installs land at v2 via DEFAULTS:
+
+- `retention_days` = 30 (windowed-event retention)
+- `grounding_items = {}` (empty by default — no suggested items)
+- `stats_threshold` = 30 (wipe-rate % above which live surfacing is suppressed)
+- `stats_surface` = true (live encounter/dungeon stat surfacing toggle)
+- `positive_ui` = false (highlight UI toggle; visual treatment ships in 4b)
+
+`db.session_buffer` substructure is shaped at runtime by `Buffer:Init` rather than declared in DEFAULTS, so AceDB's defaults merge doesn't recreate counters tables on every login. Shape:
+
+```
+session_buffer = {
+    counters = {
+        encounters = { [encounterID] = { [difficultyID] = { name, attempts, completed, wiped, last_attempt } } },
+        dungeons   = { [mapID] = { name, runs_started, completed, last_run } },
+        sessions   = { current = {...}, history = { ...up to 20... } },
+        thanks_total, deaths_total,
+    },
+    events = {
+        positive_moments = { { id, ts, text, signals, direct_to_user }, ... },
+        flagged_events   = { { ts, category, severity }, ... },
+        activity_log     = { { ts, type }, ... },  -- type: encounter_completed/wiped, death, thanks_received
+    },
+    next_pm_id = N,
+}
+```
+
+`db.pinned_moments[id]` is a separate top-level table. Pin cap is 100; oldest unpins on overflow with a notification.
+
+### Counters: permanent. Events: windowed.
+
+Counters never prune. Windowed events (positive_moments, flagged_events, activity_log) prune on addon load via `Buffer:Prune(retention_days)`. Pinned moments never prune. This is the load-bearing storage philosophy — don't regress it.
+
+The activity log is the source of truth for `Stats.WeekSummary`. Counters don't carry per-event timestamps, so for any time-windowed aggregate, walk the activity log instead of summing counters.
+
+### Session lifecycle
+
+`Buffer:Init` resumes the previous `current` session if its `last_activity_at` is within `SESSION_RESUME_WINDOW_S` (1 hour); otherwise archives it to `history` and starts a new one. /reload during normal play does not reset session counters. History capped at 20 sessions (oldest dropped).
+
+### Positive-moment detection
+
+Pattern-based, no LLM. `PositiveCapture.capture(msg, classifier_result, event)` runs on every chat-frame message that the rule engine returns as pass-through; sarcasm-flagged messages (any of `sarcasm_antonymic_praise`, `sarcasm_passive_thanks`, `sarcasm_slash_s`, `sarcasm_maybe_try`) are skipped — sarcasm-flagged thanks is not thanks.
+
+Patterns in 4a: `thanks <role>`, `thanks <user-name>`, positive-verb + positive-play (e.g. `good pull`, `clutch save`), single-token callouts (`gg`, `wp`, `ggwp`, `ez`), and phrase callouts (`well played`, `good game`). `direct_to_user` is true when the role matches the user's effective role or the name matches `UnitName("player")`.
+
+Pause skips capture. Buffer writes are addon code execution; Midnight restricts during encounters. User-invoked surfacing (`/tox lift` etc.) is still allowed during pause — that's a separate path through Commands.lua, not through the chat filter.
+
+`PositiveCapture.subscribe(fn)` is the hook 4b's Highlight will use; 4a maintains the subscriber list but no module subscribes yet.
+
+### PII scrub (conservative, name-context only)
+
+`PIIScrub.scrub(text)` replaces:
+- `@<word>` → `@<player>` (any @-prefix identifier)
+- `<thanks-token> <Capword>` → `<thanks-token> <player>` (after thanks/thank/thx/ty/tysm)
+
+Allowlists: installing user's own name (preserved so direct-to-user matching works), and a small set of common all-caps tokens (GG, OK, DPS, MVP, ...). Sentence-initial caps are NOT scrubbed unless they ARE in name context — `Move out of fire` stays intact, `thanks Bob` becomes `thanks <player>`.
+
+This is over-scrub-conservative: ambiguous tokens in name context become `<player>`. Known false-negatives are acceptable; Sprint 6 will audit comprehensively. Don't try to make 4a's scrubber smarter — the right place is the audit pass.
+
+### Asymmetric display (load-bearing — don't regress)
+
+`Stats.OnEncounterStart` / `Stats.OnChallengeModeStart` surface stats only when reassuring:
+- First attempt → always surface (no history is neutral, not catastrophizing).
+- Wipe rate ≤ `stats_threshold` → surface.
+- Wipe rate > threshold → suppress silently. The user is never told their wipe rate is "too high to surface" — that defeats the point.
+
+User-invoked stats commands (`/tox stats`, `/tox stats <dungeon>`, `/tox week`) ignore the surface toggle and threshold — the user asked, so the raw numbers print regardless. This live-vs-invoked distinction is the rule: live filtering and live surfacing respect their toggles; user-invoked surfacing is always honored.
+
+### chatFilter dispatch (Sprint 4a final)
+
+1. `isPaused` → pass through, no capture, no buffer writes
+2. `db.enabled == false` → pass through
+3. `db.channels[channel] == false` → pass through
+4. `RuleEngine.classify` with handling override resolver
+   - `silent`/`del`/`edit`: emit handling, record flagged event in buffer
+   - `pass`: continue
+5. `PositiveCapture.capture` (only when handling==pass; sarcasm de-flags)
+6. Sprint 0 fixtures (fallback)
+
+### Slash commands added
+
+| Group   | Commands |
+|---------|----------|
+| Surface | `/tox lift`, `/tox positive [ui on\|off]`, `/tox session` |
+| Stats   | `/tox stats`, `/tox stats <dungeon>`, `/tox stats threshold <0-100>`, `/tox stats surface on\|off`, `/tox week` |
+| Pinned  | `/tox star <id>`, `/tox unstar <id>`, `/tox starred` |
+| Ritual  | `/tox check`, `/tox check add\|remove\|list <item>`, `/tox check y\|n\|cancel` |
+| Buffer  | `/tox retention <days>` |
+
+`/tox check` is slash-driven Y/N (state machine in Grounding.lua). 4b may add a popup; the public surface (`Start`, `Respond`, `Cancel`, `IsRunning`, `ListItems`, `AddItem`, `RemoveItem`) is stable so 4b's `/tox ready` can chain it without changes.
+
+### Event hooks
+
+`OnPauseEvent`/`OnResumeEvent` were replaced with specific handlers that pause AND record:
+- `ENCOUNTER_START` → `OnEncounterStart` (pause + Stats surface)
+- `ENCOUNTER_END` → `OnEncounterEnd` (resume + Buffer.RecordEncounter, success-aware)
+- `CHALLENGE_MODE_START` → `OnChallengeModeStart` (pause + record runs_started + Stats surface)
+- `CHALLENGE_MODE_COMPLETED` → `OnChallengeModeCompleted` (resume + record completed)
+- `CHALLENGE_MODE_RESET` → `OnChallengeModeReset` (resume only)
+- `PLAYER_DEAD` → `OnPlayerDead` (record death; no pause change)
+
+AceEvent-3.0 only allows one handler per event; combining pause + record into a single handler is the correct pattern. Sprint 0's two-event-name design is preserved at the user-visible level (still pauses, still resumes), the implementation just picked up data-recording responsibilities.
+
+### Known minor false-positives (Sprint 4a; document, don't fix)
+
+- **Self-thanks capture.** A user typing "thanks tank" themselves where they ARE a tank gets captured as direct_to_user. We don't filter on sender. Pragmatic; fine.
+- **Generic "thanks all" without role/name.** Captured as `thanks_role`/`thanks_user` only when the next token matches; "thanks all" wouldn't match either. So generic group thanks isn't captured. Acceptable; Sprint 7 tuning if patterns underperform.
+- **GetInstanceInfo mid-CHALLENGE_MODE.** The mapID/instanceID we record is what `GetInstanceInfo()` reports at the event, which is stable in practice but not guaranteed across all dungeon types. Counters may bucket incorrectly in edge cases. Revisit if collisions show up.
+- **PII scrub misses.** Conservative, name-context-only. A name appearing without a thanks-token or @ prefix isn't scrubbed. Sprint 6 audit.
+
+### Permanent discipline (carried forward)
+
+- **Tonal grep:** every sprint that adds user-output strings, grep `!|great|oops|sorry` against `addon/Commands.lua addon/PositiveCapture.lua addon/Stats.lua addon/Grounding.lua addon/ToxFilter.lua addon/Database.lua addon/Buffer.lua addon/PIIScrub.lua` (plus 4b's new files when 4b lands). Self-referential matches (the grep documentation itself, pattern-data tables that legitimately contain words like "great") are acceptable.
+- **Pipe doubling:** every print/chat-bound string with literal pipes uses `||`. Every new help-text addition this sprint follows the rule.
+
+## Build 1 Sprint 4b: visual UI + /tox ready orchestration
+
+**Status: complete.**
+
+Three modules layer the visual surface on top of Sprint 4a's data layer:
+
+- `addon/Highlight.lua` — chat-line color tinting on captured positive moments
+- `addon/Breathing.lua` — animated box-breathing frame
+- `addon/Ready.lua` — `/tox ready` meta-orchestration state machine
+
+### Highlight: two-surface design (load-bearing)
+
+The visual treatment requires synchronous knowledge of whether the current message is a positive moment AT the time `chatFilter` decides what to return — a subscriber callback fires asynchronously after `capture()` returns and cannot influence the chat-frame return path. So Highlight exposes both:
+
+1. **Synchronous helper** — `Highlight.tintIfEligible(msg, moment) -> string|nil`. Called inline from `chatFilter` on the pass-through branch, after `PositiveCapture.capture` returns a moment. Returns a `|cFF66AA66<msg>|r`-wrapped string when `db.positive_ui == true` AND not paused; nil otherwise. The chatFilter then returns `false, tinted, ...` to replace the visible line.
+2. **Subscriber stub** — `Highlight.OnPositiveMoment(moment)`. Registered via `PositiveCapture.subscribe` in `OnInitialize`. No-op observer in 4b; preserves the subscriber API contract so future modules (telemetry, sound cues) attach the same way.
+
+Don't collapse this to a single surface — the subscriber-can't-influence-return-value asymmetry is the load-bearing insight.
+
+### chatFilter dispatch (Sprint 4b final)
+
+1. `isPaused` → pass through, no capture, no tint
+2. `db.enabled == false` → pass through
+3. `db.channels[channel] == false` → pass through
+4. `RuleEngine.classify` (silent / del / edit branches as before, all record flagged events)
+5. Pass-through: `PositiveCapture.capture` returns a moment (or nil); if a moment exists, `Highlight.tintIfEligible` is called — when it returns a tinted string, chatFilter returns `false, tinted, ...`
+6. Sprint 0 fixtures (fallback)
+
+### Pipe-doubling exception for WoW color codes
+
+The Sprint 3 fix1 pipe-doubling rule (`||` for literal display pipes) does NOT apply to WoW chat-frame escape sequences. `|c<AARRGGBB>` and `|r` are functional control codes — the chat parser USES them to apply colors to spans of text. Doubling them would break the escape and the user would see literal `||cFF66AA66...||r` rendered as garbage.
+
+The discipline:
+
+- **Literal display pipes** (e.g. `<a|b|c>` choice notation in help text) — double to `||`.
+- **Functional WoW escapes** (`|c<AARRGGBB>`, `|r`, `|H...|h...|h`, `|T...|t`) — keep as single pipes.
+
+Pipe-doubling audits should exclude `|c[0-9A-Fa-f]{8}` and `|r` patterns when scanning files that legitimately use color escapes (Highlight.lua in Sprint 4b; future UI modules).
+
+### Breathing animation
+
+Single shared frame, lazily created on first `Breathing.Run`. 200×200 dark-translucent backdrop with an inner colored block child and a `GameFontNormalLarge` label below.
+
+OnUpdate-driven state machine. Four phases per cycle, each lasting `db.breathe_count` seconds (default 4):
+
+```
+inhale  → block scales BLOCK_MIN → BLOCK_MAX (40 → 160 px)
+hold1   → block stays at BLOCK_MAX
+exhale  → block scales BLOCK_MAX → BLOCK_MIN
+hold2   → block stays at BLOCK_MIN
+```
+
+Cycle count comes from `db.breathe_cycles` (default 4). On natural completion, the frame hides and prints `Box breathing complete.`.
+
+**Cancellation:** `tinsert(UISpecialFrames, "ToxFilterBreathingFrame")` registers the frame for Esc-close. The frame's `OnHide` script detects mid-run dismissal (state still set) → clears state, fires the cancel hook, no completion print, no `onComplete` callback. Programmatic `Breathing.Cancel()` does the same. Clean cancel/complete asymmetry is what lets `Ready.lua` distinguish "step finished, advance chain" from "step aborted, kill chain."
+
+**Position:** account-wide via `db.breathe_position = { x, y }` (UI choice, not character choice). Drag-to-move via the mouse persists on `OnDragStop`. `/tox breathe position reset` clears it back to center.
+
+### Ready orchestration
+
+`addon/Ready.lua` chains steps in `db.ready_config.order` whose `db.ready_config.include[name]` is true. Default order is `{ "grounding", "breathing", "lift" }`, all included.
+
+State machine:
+
+- Module-local `current_chain = { steps = [...], idx = N, token = {} }`.
+- `runStep(name, token)` invokes the primitive with an `advance(token)` continuation.
+- `advance(token)` increments `idx` and runs the next step; when `idx > #steps`, clears state.
+- The `token` is a per-chain table identity. If the chain is cancelled (state cleared) and a stale callback still fires, the token mismatch makes `advance` a no-op.
+
+Step adapters:
+
+- **grounding** — empty `db.grounding_items` → print `"No grounding items configured. Skipping."` and advance immediately. Otherwise register Ready as the cancel hook on `Grounding`, then call `Grounding.Start(advance)`.
+- **breathing** — register Ready as the cancel hook on `Breathing`, then call `Breathing.Run(advance)`.
+- **lift** — synchronous: call `Commands.lift()`, then advance.
+
+**Cancellation via cancel_hook (load-bearing):** `Grounding.SetCancelHook(fn)` and `Breathing.SetCancelHook(fn)` let Ready listen for `/tox check cancel` and Esc-on-breathing without the primitives knowing about Ready. The hook clears chain state, which makes any subsequent stale `onComplete` callback no-op via the token check.
+
+The primitives are independent: `Grounding.Cancel` / `Breathing.Cancel` work standalone; the cancel hook is just an additional listener Ready attaches and detaches around its step invocations.
+
+### Schema v3 migration
+
+`migrations[3]` backfills `breathe_cycles` (default 4), `breathe_count` (default 4), and `ready_config` (`{ include, order }`) for existing v2 users. `breathe_position` is intentionally left nil so an unmoved frame anchors `CENTER` rather than to a stale offset. Fresh installs land at v3 via DEFAULTS.
+
+### Slash command additions
+
+| Group    | Commands |
+|----------|----------|
+| Breathe  | `/tox breathe`, `/tox breathe cycles <N>`, `/tox breathe count <N>`, `/tox breathe position <x> <y>\|reset` |
+| Ready    | `/tox ready`, `/tox ready list`, `/tox ready include <step> on\|off`, `/tox ready order <s> <s> <s>` |
+
+`/tox positive ui on|off` from Sprint 4a now actually applies the visual treatment (the "Sprint 4b ships..." parenthetical was removed).
+
+### Tonal grep target list (Sprint 4b extension)
+
+Now includes `addon/Highlight.lua addon/Breathing.lua addon/Ready.lua` in the standard grep set. Phase labels (`Inhale`, `Hold`, `Exhale`) and completion line (`Box breathing complete.`) are deliberately bare — no exclamation, no encouragement.
+
+## Build 1 Sprint 4 fix: post-verification corrections + debug counter tool
+
+**Status: complete (rolling release with 4a + 4b).** Version `0.0.7-sprint4-fix`. Schema bumped to v4.
+
+In-game verification of 4a + 4b surfaced eight issues. Rather than re-sprint, this fix lands on top of the working tree and ships with 4a/4b in a single commit.
+
+### Issue summary
+
+1. **ASCII arrows.** `/tox test`, `/tox classify`, `/tox rewrite` rendered `→` as a replacement-glyph box in WoW's chat font. All three now use `->`. Lua-source comments still use `→` because they never reach the chat parser.
+2. **`party` channel is an alias for `instance`.** WoW retail no longer routes `/p` as a separate event stream — `CHAT_MSG_PARTY*` folds into `instance`. The canonical key in `db.channels` is `instance`; `party` is accepted only as an input alias on `/tox channel party on|off`. `/tox channel list` annotates the row as `instance: on (also: party)` so the modern name leads but the old habit still works. The v4 migration consolidates a legacy `db.channels.party` into `instance` with OR semantics (if either was on, merged is on) and deletes `db.channels.party`. `EVENT_TO_CHANNEL` maps `CHAT_MSG_PARTY*` → `instance`.
+3. **`/tox handle <cat> default` interpolates the resolved value.** "Category 'role_attack' reset to default (edit)." instead of bare "reset to default." — surfaces what the user actually got.
+4. **Blacklist routes to `edit` (load-bearing).** User blacklist hits previously inherited `general_hostility`'s default of `del`, which is too aggressive for a personally-flagged word — surgical rewrite preserves the line and respects the user's flag without making the channel feel destructive. The fix is hardcoded inline at the blacklist branch in `RuleEngine.lua` (not a `Database.blacklist_handling` constant): `handling = "edit"` regardless of category default OR user `/tox handle` override. The category label stays `general_hostility` so display/labeling paths don't change. **Don't regress this**: future sprints touching the rule-engine integration must keep the blacklist `handling` field hardcoded to `edit`. The comment block at the call site cites this decision.
+5. **Whisper first-enable note text.** The `whisper_intro_shown` infrastructure already existed (Sprint 3); only the printed text changed to the spec's factual one-liner: "Whisper filtering enabled. Note: this reads private messages sent to you. Filtered output is shown only to you. Disable with /tox channel whisper off."
+6. **Per-bucket instance death/wipe/completion counters.** Largest fix. See the dedicated subsection below.
+7. **Breathing frame closes on combat start.** `frame:RegisterEvent("PLAYER_REGEN_DISABLED")` + an `OnEvent` that calls `frame:Hide()` when `state` is set. Routes through the existing `OnHide` handler so cancel-hook semantics match Esc — silent close, no completion print, fires cancel hook so any in-flight `/tox ready` chain aborts. (The fix-spec said "no callback fired"; we deliberately fire the cancel hook instead because a chain silently advancing to `lift` post-combat is the worse UX. Confirmed at planning.)
+8. **`/tox debug` counter tool.** New `addon/Debug.lua`. See the dedicated subsection below.
+
+### Counter shape (v4) — instance + difficulty bucket (Issue 6)
+
+Old shape (`encounters[encounterID][difficultyID]`, `dungeons[mapID]`, global `deaths_total`) is removed. New shape lives entirely in `db.session_buffer.counters.instances`:
+
+```
+instances[<instance_name>][<bucket>] = {
+    deaths, wipes, completions, last_event,
+}
+```
+
+`<instance_name>` is `GetInstanceInfo()`'s English name (Localization is Future Work). `<bucket>` is one of `normal | heroic | mythic | M0 | M2-5 | M6-10 | M10+`.
+
+**Scope filter (locked).** `PLAYER_DEAD` only counts when `GetInstanceInfo()`'s `instanceType` is `party` (5-player) or `raid`. Battleground (`pvp`), arena, scenario, and open-world (`none`) deaths are not tracked — there is intentionally **no "world deaths" counter**. `ENCOUNTER_END` and `CHALLENGE_MODE_COMPLETED` apply the same filter.
+
+**Bucket assignment is locked at run start.** Two module-local fields in `ToxFilter.lua`:
+- `mplus_bucket` is set on `CHALLENGE_MODE_START` from `C_ChallengeMode.GetActiveKeystoneInfo()` and stays sticky across pulls until `CHALLENGE_MODE_COMPLETED`/`RESET`.
+- `encounter_bucket` is set on `ENCOUNTER_START` from the difficultyID parameter (mapped via `DIFFICULTY_TO_BUCKET`) and clears on `ENCOUNTER_END`.
+
+Precedence: M+ wins. `effectiveBucket()` returns `mplus_bucket or encounter_bucket or bucketForDifficulty(<current GetInstanceInfo difficultyID>)`. The fallback covers PLAYER_DEAD between pulls or before any encounter has fired.
+
+**M+ bucket boundaries (locked).** From keystone level: `<= 1` → `M0`, `2..5` → `M2-5`, `6..10` → `M6-10`, `>= 11` → `M10+`. Even though level-1 keystones don't exist in current WoW, the bound is `<=1` so a missing/zero level still buckets cleanly to M0.
+
+**Difficulty-ID → bucket map** is a small static table in `ToxFilter.lua`. Documented entries: 1 (Normal dungeon), 2 (Heroic dungeon), 14 (Normal raid), 15 (Heroic raid), 16 (Mythic raid), 17 (LFR → normal), 23 (Mythic dungeon), 24 (Story → normal), 33 (Timewalking → normal). Mythic Keystone (8) returns nil and the keystone-level path takes over. Unknown IDs default to `"normal"` so we still bucket. Revisit if Midnight introduces new IDs.
+
+**Migration v4 reset.** The previous counter data merged BG/world/dungeon scope. It was test data and is discarded — this is acceptable per the project owner. Migration `[4]` rebuilds `counters` to `{ instances = {}, sessions = <preserved>, thanks_total = <preserved> }` and prints a single line: "Migrating counter schema. Previous counter data is reset due to scope changes." Pinned moments and session history are preserved (different scope).
+
+**Asymmetric display threshold applies per (instance, bucket).** `Stats.shouldSurfaceBucket` computes wipe rate from the (instance, bucket) record's `wipes` and `completions`; suppression is silent when over threshold, same as 4a.
+
+**`/tox stats` views.**
+- `/tox stats` (no arg) — single-line aggregate: lifetime thanks, instance deaths, instance attempts (won/wiped), instance count, threshold/surface settings. Points at `/tox stats <name>` for breakdown.
+- `/tox stats <substring>` — substring-matches against instance names; for each match prints one row per bucket present, formatted by `Stats.formatBucketLine` ("heroic: 3 completed, 1 wiped (25% wipe), 5 deaths").
+- `/tox stats threshold <N>` and `/tox stats surface on|off` are unchanged.
+
+### `/tox debug` (Issue 8)
+
+Developer-only counter manipulation. Approach B: gated by `db.debug_enabled` (default `false`). The toggle is hidden from `/tox help`. When the flag is off, every debug subcommand except `enable` prints "Unknown command 'debug'. Try /tox help." — the surface stays invisible to non-developers.
+
+`/tox debug enable` always works (otherwise turning the tool on would itself be gated). `/tox debug disable` only works when the flag is on.
+
+Subcommands when enabled:
+
+```
+/tox debug enable | disable
+/tox debug version
+/tox debug counter <instance> <difficulty> <field> <value>
+/tox debug counter list [<instance>]
+/tox debug counter reset <instance> <difficulty>
+/tox debug counter reset all confirm
+/tox debug session reset
+```
+
+Field set: `deaths`, `wipes`, `completions`. Buckets: `normal | heroic | mythic | M0 | M2-5 | M6-10 | M10+` (case-insensitive on input). Quoted instance names accept spaces; unquoted form consumes tokens until one matches a known bucket. `reset all` requires the literal `confirm` token (no popup; matches the slash-surface idiom).
+
+### Files touched
+
+New: `addon/Debug.lua`. Modified: `addon/Commands.lua`, `addon/Database.lua`, `addon/Buffer.lua`, `addon/Stats.lua`, `addon/ToxFilter.lua`, `addon/Breathing.lua`, `addon/RuleEngine.lua` (blacklist routing — chose this over `addon/UserRules.lua` because the routing decision lives at the integration point where the synthetic hit's `handling` field is constructed), `addon/ToxFilter.toc`, `.luacheckrc`. Doc updates: `CLAUDE.md` (this section), `addon/README.md`.
+
+### Verification deltas
+
+- `Stats.formatEncounterLine` / `Stats.formatDungeonLine` / `Stats.shouldSurfaceWipeRate` removed. Replaced by `formatBucketLine`, `formatInstanceBlock`, `shouldSurfaceBucket`. Anything reaching for the old names will break loudly; that's deliberate.
+- `Buffer.GetEncounterStats(encounterID, difficultyID)` and `Buffer.GetDungeonStats(mapID)` removed. Replaced by `Buffer.GetInstanceStats(instance, bucket)`, `Buffer.GetInstanceBuckets(instance)`, `Buffer.GetAllInstances()`.
+- `Buffer:RecordEncounter(instance, bucket, success)` and `Buffer:RecordDeath(instance, bucket)` and `Buffer:RecordChallengeMode(instance, bucket, completed)` — all changed signature. The (encounterID, difficultyID, mapID) arguments are gone. ToxFilter.lua's event handlers do the bucket resolution.
+- Tonal grep + pipe-doubling audit pass against `addon/Debug.lua` plus the rest of the standard set. Existing single-pipe leaks in `Commands.classify` output (` | attack:`, etc.) are doubled in this fix as well.
+
+## Build 1 Sprint 4 Verification Round 2 fixes
+
+**Status: complete.** Version `0.0.8-sprint4-fix2`. Schema bumped to v5.
+
+In-game verification of the Round 1 fix (`0.0.7-sprint4-fix`) surfaced eight follow-on issues. Like Round 1, this rolls into the working tree on top of 4a/4b/fix and ships before any commit happens.
+
+### Issue summary
+
+1. **F18 — Whisper privacy note didn't print.** Wire was correct; root cause was that prior testing flipped `whisper_intro_shown=true` and the bit persisted. AceDB only strips values **equal to default**, so a written `true` survives logout. Fix: `migrations[5]` force-resets the bit to `false`. One-shot pre-release re-arm — drop the migration after launch (or convert to a `/tox debug` reset).
+2. **H8 — Positive moments only captured when whisper was on.** No actual whisper coupling in the code; the symptom came from `chatFilter` short-circuiting on `db.channels[channel] == false` before `PositiveCapture.capture` could run. Whisper defaults off, so whisper messages never reached capture; the user inferred the wrong cause. **Architectural fix:** channel-off no longer short-circuits. The new dispatch always runs `RuleEngine.classify` and (when verdict is `pass`) `PositiveCapture.capture`; channel-off only suppresses the silent/del/edit handling and the highlight tint. **Whisper carve-out (load-bearing):** `PositiveCapture.capture` checks `event == "CHAT_MSG_WHISPER"` and `db.channels.whisper == false`, returning nil unconditionally. Whisper is the one channel the user explicitly opted out of; capturing positive moments from private 1:1 messages would contradict the opt-out. Don't regress this: the privacy carve-out is a deliberate exception to the otherwise-uniform "channel-off still captures" rule.
+3. **H8 supplemental — `ty edvins` didn't capture.** `UnitName("player")` can return `Name-Server` on connected realms. `PositiveCapture.userNameLower` now strips everything from the first `-` onward before lowercasing, so `Edvins-Stormrage` matches `edvins`.
+4. **I2 — `/tox positive ui` toggle.** Previous implementation: no-arg form printed state; `on`/`off` set explicitly. The user wanted no-arg to toggle. Fix: bare `/tox positive ui` flips the value; `/tox positive ui on|off` still sets explicitly.
+5. **I9 — Box breathing during combat.** `Breathing.Run` now calls `InCombatLockdown()` at entry; if true, prints `Cannot start breathing during combat.` and fires `onComplete` so a `/tox ready` chain advances past the step rather than stalling. Standalone `/tox breathe` just prints and returns. Routed through `onComplete` — not the cancel hook — because skipping is a clean step transition, not an abort.
+6. **I12 — `/tox check y/n` inside `/tox ready`.** Diagnostic grep on `Commands.lua` and `Grounding.lua` found no Ready-state guard or early-exit path. Code-side trace through Commands.check → Grounding.Respond → onComplete → Ready.advance is correct. Shipping with no code change; re-verify after the I16 fix lands. If I12 persists, the next investigation should add temporary logging to Grounding.Respond rather than speculating in code.
+7. **I16 — Cancellation in Ready chain.** Two parts. Master abort: new `Ready.Cancel()` clears chain state, then calls `Grounding.Cancel`/`Breathing.Cancel` if either primitive is running. Wired to `/tox ready cancel`. The existing `/tox check cancel` cascade was already correct (Grounding.Cancel → fireCancelHook → Ready's hook → clearChainState); no code change needed there beyond documentation.
+8. **I7 — Cycle indicator on breathing.** Second `FontString` (`GameFontNormal`, anchored BOTTOM +10) below the existing phase/count label (which moved up to BOTTOM +28 to make room). Updated each tick from `state.cycle` and `state.cycles` in `applyPhaseVisual`. Format: `Cycle 2 of 4`.
+9. **H1 clarification — `/tox stats` vs `/tox session`.** Locked: `/tox stats` is lifetime; `/tox session` is current session. No new subcommand on `/tox stats`. Improved error text on no-match: `No instance named 'X' found. Use /tox session for current-session stats.` Help text for both commands now points at the other so the discoverability gap closes.
+
+### Channel-off semantics change (load-bearing — don't regress)
+
+The `chatFilter` dispatch was restructured. Old order: pause → master → channel → engine → capture → fixtures, with channel-off short-circuiting everything. New order: pause → master → engine (always) → handling (channel-gated) → capture (always when verdict is pass; never when whisper is opted out) → highlight (channel-gated) → fixtures (channel-gated).
+
+The principle: **channel-off means "don't modify this channel's messages," not "ignore this channel."** Positive-moment capture is observation, not modification, so it's not gated by the channel toggle. Whisper is the privacy exception: opting whisper off means the user doesn't want ToxFilter reading their private messages at all, including for positive observation.
+
+Future sprints touching `chatFilter` must keep the channel toggle scoped to handling + visual treatment, not the engine pass and not capture (modulo the whisper carve-out).
+
+### Schema v5 migration
+
+`migrations[5]` is a one-shot reset of `whisper_intro_shown` to `false`. Reasoning is in the migration's comment block. Existing testers who saw the privacy note during prior rounds will see it again on next `/tox channel whisper on`. Acceptable for pre-release; remove once shipped, or convert to a `/tox debug` resettable.
+
+### Files touched
+
+Modified: `addon/Database.lua` (LATEST_SCHEMA_VERSION=5, migrations[5]), `addon/ToxFilter.lua` (chatFilter restructure, VERSION bump), `addon/PositiveCapture.lua` (whisper opt-out check, `-Server` suffix strip), `addon/Commands.lua` (positive ui toggle, /tox ready cancel dispatch, stats error text + help refinements, /tox positive help text refresh), `addon/Breathing.lua` (combat-lockdown gate, cycle indicator FontString, label re-anchor), `addon/Ready.lua` (Ready.Cancel master abort), `addon/ToxFilter.toc` (version), `.luacheckrc` (InCombatLockdown global). New: `Verification_Protocol.md` (created from scratch). Doc updates: `CLAUDE.md` (this section), `addon/README.md`.
+
+### Tonal-grep + pipe-doubling discipline
+
+Standard grep set (`Commands.lua`, `PositiveCapture.lua`, `Stats.lua`, `Grounding.lua`, `ToxFilter.lua`, `Database.lua`, `Buffer.lua`, `PIIScrub.lua`, `Highlight.lua`, `Breathing.lua`, `Ready.lua`, `Debug.lua`) ran clean against `!|great|oops|sorry`. Pipe-doubling audit found no single-pipe leaks in user-facing strings (functional `|c<AARRGGBB>` / `|r` color escapes in Highlight.lua remain single-pipe per the documented exception).
+
+## Build 1 Sprint 4 Verification Round 3 fixes
+
+**Status: complete.** Version `0.0.9-sprint4-fix3`. No schema change.
+
+Round 2 surfaced four follow-on items in in-game testing. Only one prompted a code edit; the other three resolved as diagnostic investments or documented gotchas. Like prior rounds this rolls into the working tree on top of 4a/4b/fix/fix2 before any commit.
+
+### Issue summary
+
+1. **Counter set vs add (reported as code bug, resolved as no-op).** The user observed `/tox debug counter ... <field> N` appearing additive across invocations. Source-side trace through `addon/Debug.lua` showed `setCounter` at line 109 already writes `instances[instance][bucket][field] = value` — plain assignment, set semantics, no `+=` anywhere in the path. No code change made. Most plausible cause of the in-game observation: stale deploy from an earlier iteration where the operation may have been additive. Re-deploy of current source + re-run of H22 with three identical `N` values is the verification step. If H22 still fails on the fresh source, the diagnostic prints below pin it down.
+
+2. **Counter-scope filter verification (clean trace, no code change).** Walked the `PLAYER_DEAD` / `ENCOUNTER_END` / `CHALLENGE_MODE_COMPLETED` handlers in `ToxFilter.lua`. All three gate on `isCountedScope(instanceType)` which restricts to `party` (5-player dungeon) or `raid`. `PVP`, `arena`, `scenario`, and `none` (open-world) are silently dropped. No `PLAYER_ENTERING_WORLD` or `ZONE_CHANGED_NEW_AREA` handlers exist anywhere. The H1 instance-scope fix is intact. The user's between-readings counter growth was almost certainly Issue 1 (additive debug invocations) bleeding into the test, not real-event increments outside scope.
+
+3. **Reassuring message not surfacing (resolved as testing methodology + a name-string gotcha — see Hypothesis B/C below).** Walked five hypotheses. A (threshold default 30), D (`stats_surface` default true), and E (`<=` boundary inclusive at 30%) all check out in source. The real issues are B and C, both of which are diagnostic-blindness rather than code bugs.
+
+4. **`count` as alias for `counter` (one-line polish).** Added. `/tox debug count ...` now routes to the same handler as `/tox debug counter ...`.
+
+### Hypothesis B (load-bearing testing-methodology gotcha)
+
+`Stats.OnEncounterStart` / `Stats.OnChallengeModeStart` fire from `ENCOUNTER_START` and `CHALLENGE_MODE_START` respectively — **not** from `PLAYER_ENTERING_WORLD`. Zoning into a dungeon surfaces nothing until the user pulls. This is intentional (zoning is preparation, the encounter pull is the role-anxiety moment) but it surprises testers seeding a low-wipe-rate scenario and expecting a message on zone-in. Verification protocol carries an explicit NOTE on H-series surfacing tests so this isn't re-discovered each round.
+
+### Hypothesis C (name-string mismatch — diagnostic-only response)
+
+`GetInstanceInfo()` returns the API's canonical instance name, which may differ from the seed string by leading article, expansion prefix, or localization. Adding a (per-tester, per-run) diagnostic print at encounter start that displays the exact `(instance, bucket)` the API returns lets the user reconcile against the seeded key immediately, without source-side speculation.
+
+### Diagnostic prints (always-on investment, debug-gated)
+
+Two new prints land in `Buffer.lua` and `Stats.lua`, both gated on `db.debug_enabled` so they emit only when the developer surface is on:
+
+- `Buffer.lua`: every successful counter increment in `RecordEncounter` / `RecordDeath` / `RecordChallengeMode` prints `[ToxFilter Debug] Counter increment: <instance> / <bucket> / <field>`. Direct confirmation that scope-filtered events are dropped (no print on BG / arena / world) and that real instance events route correctly.
+- `Stats.lua`: `OnEncounterStart` / `OnChallengeModeStart` print `[ToxFilter Debug] Encounter start in: '<instance>' bucket '<bucket>'` at the moment the surfacing decision is made. The instance string here is exactly what `GetInstanceInfo()` returned — paste-it-back-into-debug-counter to seed correctly.
+
+The prints are deliberately not gated on `stats_surface` or scope filter — they fire regardless so the user can see the input the surfacing logic worked with even when surfacing is suppressed. Zero runtime cost when `debug_enabled` is false.
+
+### Issue 4: `count` alias implementation
+
+One line in `Debug.dispatch`: `if sub == "counter" or sub == "count" then cmdCounter(after); return end`. The help-text line also notes the alias parenthetically. The aliasing happens at the dispatch boundary; downstream `cmdCounter` / `cmdCounterSet` are unchanged.
+
+### Files touched
+
+Modified: `addon/Debug.lua` (count alias + help text), `addon/Buffer.lua` (debug increment helper + three call sites), `addon/Stats.lua` (debug start helper + two call sites), `addon/ToxFilter.lua` (VERSION), `addon/ToxFilter.toc` (Version). Doc updates: `CLAUDE.md` (this section), `Verification_Protocol.md` (H22 corrected expectation, new H25 for scope check via diagnostic print).
+
+### Tonal-grep + pipe-doubling discipline
+
+Standard grep set ran clean against `!|great|oops|sorry`. New debug-print strings contain no display pipes; no functional WoW escapes in scope.
+
 ## What's out of scope per sprint
 
 - Sprint 0 (done): skeleton + four-mode dispatcher + Midnight pause logic.
 - Sprint 1 (done): rule engine, hash table lookup, encoded rule data, real categories.
 - Sprint 2 (done): constructive-vs-hostile classifier, surgical rewrite, test corpus harness.
 - Sprint 3 (done, Build 1): AceDB / SavedVariables, whisper toggle, per-user category-handling overrides, full slash suite.
-- Sprint 4 adds: session buffer, positive-moment capture, pinned moments, stats; visual highlight (first UI element).
+- Sprint 4a (done, Build 1): session buffer, positive-moment capture, pinned moments, encounter/dungeon counters, asymmetric stats surfacing, slash-driven grounding ritual.
+- Sprint 4b (done, Build 1): chat-line highlight UI, animated box-breathing frame, `/tox ready` meta-orchestration.
+- Sprint 4 fix (done, Build 1): post-verification fixes (ASCII arrows, channel alias, default interpolation, blacklist edit-routing, whisper text, instance-only per-bucket counters, breathing combat-cancel) + `/tox debug` developer counter tool.
+- Sprint 4 fix2 (done, Build 1): second post-verification round (whisper privacy bit reset via v5 migration, chatFilter channel-off no longer short-circuits capture with whisper privacy carve-out, `-Server` suffix strip on UnitName, `/tox positive ui` no-arg toggles, combat-lockdown gate on `/tox breathe`, cycle indicator on the breathing frame, `/tox ready cancel` master abort, `/tox stats` vs `/tox session` discoverability fixes).
+- Sprint 4 fix3 (done, Build 1): third post-verification round — `count` alias for `counter`; debug-gated diagnostic prints on counter increments and encounter-start so future scope/name-mismatch investigations are self-evident; no code change for the reported "additive counter set" (source already uses set semantics) or for the scope-filter (trace clean); Hypothesis B (encounter pull required for surfacing) documented as a permanent testing-methodology gotcha.
 - Sprint 5 adds: role-aware callout prioritization (consumes the role setting from Sprint 3).
 - Build 1 also brings configuration UI and Sprint 7's threshold gate.
 - Build 2 is the companion app.
@@ -322,7 +718,7 @@ Don't pre-build any of these. Each sprint validates a layer; later sprints add f
 - TOC paths use backslashes (Windows convention; WoW client accepts on both OSes).
 - Ace3 lives under `addon/Libs/` and is excluded from luacheck.
 - All user-visible chat output uses literal `[ToxFilter]` prefix via `print()` so the format is consistent regardless of where in the code it originates.
-- **Pipe characters in chat strings must be doubled** (`||`). WoW's chat-frame parser treats `|` as the lead-in for color escapes (`|cffrrggbb...|r`), hyperlinks (`|H...|h...|h`), textures (`|T...|t`), etc. A literal `|r` in your help text gets eaten as a color reset and the reader sees mangled output (e.g. `<add|remove|list>` displays as `<addemove>` with subsequent characters consumed too). Sprint 3 fix1 caught this in the help/usage strings — any new user-facing string containing pipes (e.g. `<a|b|c>` choice notation) must escape every pipe as `||`. Lua source-side string concatenation is unaffected; the doubling only matters where the chat parser sees the bytes.
+- **Pipe characters in chat strings must be doubled** (`||`). WoW's chat-frame parser treats `|` as the lead-in for color escapes (`|cffrrggbb...|r`), hyperlinks (`|H...|h...|h`), textures (`|T...|t`), etc. A literal `|r` in your help text gets eaten as a color reset and the reader sees mangled output (e.g. `<add|remove|list>` displays as `<addemove>` with subsequent characters consumed too). Sprint 3 fix1 caught this in the help/usage strings — any new user-facing string containing pipes (e.g. `<a|b|c>` choice notation) must escape every pipe as `||`. Lua source-side string concatenation is unaffected; the doubling only matters where the chat parser sees the bytes. **Exception (Sprint 4b):** functional WoW escapes — `|c<AARRGGBB>`, `|r`, `|H...|h...|h`, `|T...|t` — must stay single-pipe. Doubling them breaks the escape. Pipe-doubling audits exclude `|c[0-9A-Fa-f]{8}` and `|r` patterns when scanning files that legitimately use color codes (Highlight.lua today; future UI modules).
 
 ## Things that are NOT in this repo
 

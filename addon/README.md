@@ -4,7 +4,7 @@ Working name. Pre-release. World of Warcraft addon that filters incoming group/r
 
 ## Status
 
-Build 1 Sprint 3. Persistence (AceDB-3.0, account-wide), full slash-command suite, and an opt-in whisper hook now sit on top of the Build 0 rule engine + classifier + surgical rewrite. Real wordlists are populated off-platform.
+Build 1 Sprint 4b + two rounds of post-verification fixes. The visual UI layer ships in 4b: subtle chat-line color tint on captured positive moments, an animated box-breathing frame, and the `/tox ready` meta-command that chains grounding → breathing → lift in user-configured order. The fix sprints correct issues found during in-game verification (party→instance channel alias, ASCII-only arrows in `/tox` output, blacklist hits route to edit, instance-only per-bucket death/wipe counters, breathing frame closes on combat start and refuses to start during combat, whisper privacy note, `/tox positive ui` toggles correctly, positive capture decoupled from per-channel state, `/tox ready cancel` master abort, cycle indicator on the breathing frame) and add a developer-only `/tox debug` counter tool gated behind a hidden flag.
 
 ## What it does today
 
@@ -45,8 +45,8 @@ Run `/tox help` for the grouped summary or `/tox help <command>` for details on 
 - `/tox status` — Active, Disabled, or Paused (combat window). Reports a soft-disabled state when every category is set to `pass`.
 
 **Channels:**
-- `/tox channel <name> on|off` — toggle one of `party`, `raid`, `instance`, `battleground`, `whisper`.
-- `/tox channel list` — show all channel states.
+- `/tox channel <name> on|off` — toggle one of `raid`, `instance`, `battleground`, `whisper`. `party` is accepted as an input alias for `instance` (WoW retail folds /p into instance chat).
+- `/tox channel list` — show all channel states. The instance row is annotated `(also: party)`.
 
 **Category handling:**
 - `/tox handle <category> <pass|edit|del|silent>` — override default handling.
@@ -57,12 +57,61 @@ Run `/tox help` for the grouped summary or `/tox help <command>` for details on 
 - `/tox role <auto|tank|healer|dps>` — set or override role. `auto` uses `GetSpecializationRole()`. The role setting is persisted now; role-aware behaviors arrive in Sprint 5.
 
 **User lists:**
-- `/tox blacklist add|remove|list <word>` — user-added words match as `general_hostility` severity 5.
+- `/tox blacklist add|remove|list <word>` — user-added words. Hits route to `edit` handling regardless of category default — surgical rewrite is the respectful default for personally-flagged words.
 - `/tox whitelist add|remove|list <word>` — exempt a word from rule-engine matching.
 - Both lists are stored hashed (FNV-1a); the entry's normalized plaintext is kept alongside the hash for `list` output.
 
+**Surface (Sprint 4a / 4b):**
+- `/tox lift` — print the most recent positive moment captured. Works during combat-pause windows; user-invoked surfacing is independent of live filtering.
+- `/tox positive` — print the 10 most recent positive moments.
+- `/tox positive ui` — toggle the in-line highlight (or pass `on`/`off` to set explicitly). Captured positive moments display with a subtle green tint when on. Default off; opt-in. Pause windows suppress the tint regardless.
+- `/tox session` — current play-session detail (this session only: start time, encounters, deaths, thanks). For lifetime aggregates across all sessions and instances, use `/tox stats`.
+
+**Stats (Sprint 4a + fix):**
+- `/tox stats` — lifetime aggregate across all instances and difficulty buckets. (For the current play session only, use `/tox session`.)
+- `/tox stats <instance>` — per-difficulty breakdown (substring match on instance name). Each bucket prints one row: completions, wipes, wipe rate, deaths.
+- `/tox stats threshold <0-100>` — wipe-rate threshold for live surfacing (default 30).
+- `/tox stats surface on|off` — toggle live surfacing of encounter/dungeon stats (default on).
+- `/tox week` — last 7 days summary.
+
+Counters are scoped to dungeons and raids only — battleground, arena, scenario, and open-world deaths aren't tracked. Each (instance, difficulty bucket) pair counts independently. Buckets: `normal`, `heroic`, `mythic`, plus M+ tiers `M0`, `M2-5`, `M6-10`, `M10+` locked at the start of a keystone run.
+
+Live surfacing is asymmetric: a stat is shown only when reassuring (wipe rate ≤ threshold for that specific bucket) or when it's the first attempt. Above-threshold stats are suppressed silently.
+
+**Pinned (Sprint 4a):**
+- `/tox star <id>` — pin a positive moment by its `pm_NNN` id. Pinned moments survive retention pruning. Cap 100; oldest unpins on overflow.
+- `/tox unstar <id>` — unpin.
+- `/tox starred` — list pinned moments chronologically.
+
+**Ritual (Sprint 4a):**
+- `/tox check` — start the grounding ritual.
+- `/tox check add <item>` / `/tox check remove <item>` / `/tox check list` — manage items. Default list is empty; no suggested items.
+- `/tox check y` / `/tox check n` — answer the current item.
+- `/tox check cancel` — abort an in-flight ritual.
+
+**Box breathing (Sprint 4b):**
+- `/tox breathe` — run an animated box-breathing exercise. Four phases per cycle (inhale / hold / exhale / hold), each `count` seconds. Default 4 cycles × 4 seconds = ~64 seconds. The frame shows the current phase, seconds remaining, and a `Cycle N of M` indicator.
+- `/tox breathe cycles <1-20>` — cycle count.
+- `/tox breathe count <1-20>` — seconds per phase.
+- `/tox breathe position <x> <y>` — frame offset from screen center; `reset` recenters. The frame is drag-to-move; position persists.
+- Esc closes the frame mid-cycle. Entering combat (`PLAYER_REGEN_DISABLED`) closes the frame silently — same clean-exit behaviour as Esc, no completion message. Invoking `/tox breathe` while already in combat refuses to start and prints `Cannot start breathing during combat.`
+
+**Ready (Sprint 4b):**
+- `/tox ready` — chain grounding → breathing → lift in your configured order. Each step's natural completion advances the chain. If invoked during combat, the breathing step is skipped (with a message) and the chain proceeds.
+- `/tox ready list` — show current chain.
+- `/tox ready cancel` — master abort, regardless of which step is currently running.
+- `/tox check cancel` or Esc on the breathing frame also aborts the chain.
+- `/tox ready include <grounding|breathing|lift> on|off` — toggle a step's inclusion.
+- `/tox ready order <step> <step> <step>` — reorder.
+
+**Buffer (Sprint 4a):**
+- `/tox retention <days>` — set windowed-event retention (7-365). Default 30. Pinned moments are exempt.
+
 **Inspect:**
 - `/tox version`, `/tox rules`, `/tox list`, `/tox test <msg>`, `/tox classify <msg>`, `/tox rewrite <msg>`.
+
+**Developer (hidden):**
+- `/tox debug` — counter manipulation tool, gated behind `db.debug_enabled` (default off). Hidden from `/tox help`. Lets a developer seed (instance, difficulty) counter values directly so verification of asymmetric surfacing doesn't require building a real wipe history. Subcommands: `enable | disable`, `version`, `counter <instance> <bucket> <field> <value>`, `counter list [<instance>]`, `counter reset <instance> <bucket>`, `counter reset all confirm`, `session reset`. Buckets accept case-insensitively. Quote instance names with spaces.
 
 ## Persistence
 
@@ -78,6 +127,10 @@ This is pre-release; there's no public distribution yet. From the project root:
 ```
 
 Then `/reload` in-game.
+
+## Session buffer (Sprint 4a)
+
+Counters (per-encounter, per-dungeon, per-session) are aggregated and permanent — they survive retention pruning. Windowed events (positive moments, flagged events, activity log) are pruned on addon load using `/tox retention` (default 30 days). Pinned moments live separately and are never pruned. All chat content stored to the buffer is run through a name-context PII scrubber first; Sprint 6 will audit comprehensively.
 
 ## What it does not do
 

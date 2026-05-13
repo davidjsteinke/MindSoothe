@@ -13,6 +13,27 @@ read_globals = {
     "GetSpecializationRole",
     "GetSpecialization",
 
+    -- Sprint 4a: encounter / dungeon counters and PII scrub
+    "GetInstanceInfo",
+    "UnitName",
+
+    -- Sprint 4 fix: M+ keystone level for difficulty bucket (Issue 6).
+    "C_ChallengeMode",
+
+    -- Sprint 4a: time/date globals (WoW exposes these at top level alongside the os.* equivalents)
+    "time",
+    "date",
+
+    -- Sprint 4b: WoW UI primitives for the breathing frame.
+    "CreateFrame",
+    "UIParent",
+    "UISpecialFrames",
+    "GetTime",
+    "tinsert",
+
+    -- Sprint 4 fix2 (I9): combat-lockdown gate on /tox breathe.
+    "InCombatLockdown",
+
     -- Ace3
     "LibStub",
 
