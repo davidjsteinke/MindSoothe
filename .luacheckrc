@@ -34,6 +34,9 @@ read_globals = {
     -- Sprint 4 fix2 (I9): combat-lockdown gate on /tox breathe.
     "InCombatLockdown",
 
+    -- Sprint 5: audio cue for role-callout matches.
+    "PlaySound",
+
     -- Ace3
     "LibStub",
 

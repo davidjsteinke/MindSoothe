@@ -98,6 +98,54 @@ ns.Patterns = {
         {"have", "you", "tried"},
         {"ever", "heard", "of"},
     },
+
+    -- Sprint 5: role-target tokens for direct-addressing detection. Distinct
+    -- from ROLE_NOUNS (which is the classifier's role-attack anchor set and
+    -- intentionally singular-only per Sprint 2 design). ROLE_TARGETS includes
+    -- plurals + diminutives because callouts and positive moments routinely
+    -- address roles collectively ("tanks stack", "thanks healers").
+    -- Sprint 7 may merge plurals into ROLE_NOUNS once the corpus shows the
+    -- regression delta is acceptable.
+    ROLE_TARGETS = set({
+        "tank", "tanks",
+        "healer", "healers", "heal", "heals", "healz",
+        "dps", "dpsers", "dpses",
+    }),
+
+    ROLE_TARGET_TO_ROLE = {
+        tank    = "tank",
+        tanks   = "tank",
+        healer  = "healer",
+        healers = "healer",
+        heal    = "healer",
+        heals   = "healer",
+        healz   = "healer",
+        dps     = "dps",
+        dpsers  = "dps",
+        dpses   = "dps",
+    },
+
+    -- Sprint 5: imperative/directive verbs for callout detection. Subset of
+    -- TACTICAL_MARKERS that reads as a directive when paired with a role
+    -- target. The mechanic-noun half of TACTICAL_MARKERS (fire, void, swirly,
+    -- puddle, etc.) is deliberately excluded — those are status mentions, not
+    -- imperatives. Imperative status markers like "now"/"incoming" are also
+    -- excluded; they reinforce a verb but don't anchor a callout themselves.
+    CALLOUT_VERBS = set({
+        -- Action verbs
+        "pull", "interrupt", "dispel", "kick", "stun", "purge", "cleanse",
+        "taunt", "soak", "bait", "pop", "lust", "hero", "bloodlust",
+        "stack", "spread", "switch", "focus", "save", "swap", "stop",
+        -- Cooldown-style references that read as directives
+        "cd", "cds", "cooldown", "cooldowns", "defensives",
+        -- Movement directives
+        "move", "out", "stay",
+    }),
+
+    -- Sprint 5: join tokens for multi-role addressing. "tank and healer",
+    -- "tanks & dps". `/` is handled by re-tokenization in Callout.detect
+    -- since Normalize would otherwise concat "tank/healer" → "tankhealer".
+    CALLOUT_JOINS = set({ "and", "&", "+" }),
 }
 
 -- Numeric-tactical predicate: percentages, plain numbers.

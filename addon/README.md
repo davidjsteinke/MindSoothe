@@ -4,7 +4,7 @@ Working name. Pre-release. World of Warcraft addon that filters incoming group/r
 
 ## Status
 
-Build 1 Sprint 4b + two rounds of post-verification fixes. The visual UI layer ships in 4b: subtle chat-line color tint on captured positive moments, an animated box-breathing frame, and the `/tox ready` meta-command that chains grounding → breathing → lift in user-configured order. The fix sprints correct issues found during in-game verification (party→instance channel alias, ASCII-only arrows in `/tox` output, blacklist hits route to edit, instance-only per-bucket death/wipe counters, breathing frame closes on combat start and refuses to start during combat, whisper privacy note, `/tox positive ui` toggles correctly, positive capture decoupled from per-channel state, `/tox ready cancel` master abort, cycle indicator on the breathing frame) and add a developer-only `/tox debug` counter tool gated behind a hidden flag.
+Build 1 Sprint 5. Adds tactical role-callout prioritization on top of the Sprint 4 family (4a affirmative data + 4b visual UI + three rounds of post-verification fixes). When a message contains a tactical callout addressed to the user's effective role, the line gets a warm-amber tint and a subtle audio cue plays. Opt-in via `/tox callout on`; off by default. Unlike Sprint 4b's positive-moment Highlight (which pauses during combat), callouts fire during combat too — time-critical UI stays active when it matters most.
 
 ## What it does today
 
@@ -54,7 +54,7 @@ Run `/tox help` for the grouped summary or `/tox help <command>` for details on 
 - Categories: `identity_attack`, `slur`, `role_attack`, `harassment`, `harm_invocation`, `general_hostility`.
 
 **Role:**
-- `/tox role <auto|tank|healer|dps>` — set or override role. `auto` uses `GetSpecializationRole()`. The role setting is persisted now; role-aware behaviors arrive in Sprint 5.
+- `/tox role <auto|tank|healer|dps>` — set or override role. `auto` uses `GetSpecializationRole()`. Consumed by Sprint 4a positive capture (`thanks tank` is direct-to-user when role matches) and Sprint 5 callout prioritization.
 
 **User lists:**
 - `/tox blacklist add|remove|list <word>` — user-added words. Hits route to `edit` handling regardless of category default — surgical rewrite is the respectful default for personally-flagged words.
@@ -95,6 +95,14 @@ Live surfacing is asymmetric: a stat is shown only when reassuring (wipe rate �
 - `/tox breathe count <1-20>` — seconds per phase.
 - `/tox breathe position <x> <y>` — frame offset from screen center; `reset` recenters. The frame is drag-to-move; position persists.
 - Esc closes the frame mid-cycle. Entering combat (`PLAYER_REGEN_DISABLED`) closes the frame silently — same clean-exit behaviour as Esc, no completion message. Invoking `/tox breathe` while already in combat refuses to start and prints `Cannot start breathing during combat.`
+
+**Callout (Sprint 5):**
+- `/tox callout` — print the current state of all three callout settings.
+- `/tox callout on|off` — master toggle for the entire feature. Off by default; opt-in.
+- `/tox callout ui on|off` — visual sub-toggle. When a message contains a tactical callout addressed to your effective role, the chat line is wrapped in a warm-amber color tint.
+- `/tox callout sound on|off` — audio sub-toggle. Plays a subtle UI cue at the same moment. The two sub-toggles are independent for users in voice chat who want one but not the other.
+- Callouts fire during combat-pause windows too. Sprint 4b's passive positive-moment highlight pauses during combat (those moments can be reviewed later); callouts are time-critical and stay active.
+- Co-occurrence: a message that's both a positive moment and a callout for your role shows the callout amber tint (not the positive green). The moment is still captured to buffer.
 
 **Ready (Sprint 4b):**
 - `/tox ready` — chain grounding → breathing → lift in your configured order. Each step's natural completion advances the chain. If invoked during combat, the breathing step is skipped (with a message) and the chain proceeds.

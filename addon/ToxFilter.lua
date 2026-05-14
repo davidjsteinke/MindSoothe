@@ -13,7 +13,7 @@
 local _, ns = ...
 
 local ADDON_NAME = "ToxFilter"
-local VERSION = "0.0.9-sprint4-fix3"
+local VERSION = "0.1.1-sprint5-fix"
 
 local ToxFilter = LibStub("AceAddon-3.0"):NewAddon(
     ADDON_NAME,
@@ -103,35 +103,41 @@ end
 
 -- ===== Chat filter dispatch =====
 
--- Sprint 4 fix2 (H8) dispatch order:
---   1. Paused (Midnight combat window) → pass through, no capture, no tint
---   2. Master toggle off                → pass through
---   3. RuleEngine.classify always runs so PositiveCapture has classifier
---      output regardless of per-channel state
---      ├─ user whitelist suppresses rule hits during lookup
---      └─ user blacklist synthesizes general_hostility hits during lookup
---   4. Per-channel toggle gates HANDLING (silent/del/edit) and the visual
---      tint, but does NOT gate capture. Channel-off still captures positive
---      moments — the user wanted to hear those messages, just not have them
---      filtered. Whisper privacy carve-out lives inside PositiveCapture
---      (skips capture entirely when whisper channel filter is off).
---   5. PositiveCapture.capture (only on pass-through verdict; sarcasm-flagged
---      and attack-flagged messages are skipped)
---      └─ Highlight.tintIfEligible wraps msg in WoW color codes when
---         positive_ui is on, channel is on, and not paused
---   6. Sprint 0 fixtures (fallback when rule engine returns pass; gated on
---      channel-on so channel-off stays a clean pass-through)
+-- Sprint 5 dispatch order:
+--   1. master toggle off → pass
+--   2. RuleEngine.classify (read-only; always runs)
+--   3. Callout.detectMatching (read-only; runs during pause too — time-critical)
+--   4. If paused: only callout tint + sound fire (channel-gated for visual);
+--      handling, capture, highlight, fixtures all skip because they involve
+--      writes or content modification that Midnight's restricted-execution
+--      window doesn't permit. Callout reads classifier output and chat-frame
+--      return value + PlaySound — both passive.
+--   5. Non-paused, channel-on: handling (silent/del/edit) with flagged-event
+--      buffer write.
+--   6. Non-paused: PositiveCapture.capture on pass verdict. Whisper privacy
+--      carve-out lives inside capture.
+--   7. Non-paused, channel-on: co-occurrence resolution. Callout match
+--      preempts positive Highlight (callout color wins; sound plays once).
+--   8. Non-paused, channel-on: Highlight.tintIfEligible only when no callout
+--      match.
+--   9. Non-paused, channel-on: Sprint 0 fixtures.
 --
--- Pause skips everything: buffer writes are addon code execution, which
--- Midnight restricts during encounters; passive UI cues during a pull are
--- exactly the wrong UX. User-invoked surfacing (/tox lift, etc.) is still
--- allowed during pause — that's a separate path through Commands.lua.
+-- Architectural principle (Sprint 5): passive UI for emotional support pauses
+-- during combat (Sprint 4b's Highlight). Time-critical UI stays active during
+-- combat (Sprint 5's Callout). Future sprints adding UI choose a category
+-- and follow the rule. Documented in CLAUDE.md.
 local function chatFilter(_chatFrame, event, msg, ...)
-    if isPaused then return false end
     if type(msg) ~= "string" or msg == "" then return false end
 
     local channelEnabled = true
     local db = ns.Database and ns.Database:Get()
+    -- Sprint 5 fix diagnostic P1: surface every message that reaches the
+    -- filter. Confirms the filter is being invoked for messages 2..N and
+    -- isn't being silently bypassed by some upstream chain edit.
+    if db and db.debug_enabled then
+        print(string.format("[ToxFilter Debug] chatFilter received: '%s' on event %s",
+            msg, tostring(event)))
+    end
     if db then
         if not db.enabled then return false end
         local channel = EVENT_TO_CHANNEL[event]
@@ -142,6 +148,49 @@ local function chatFilter(_chatFrame, event, msg, ...)
 
     local resolver = (ns.Database and function(cat) return ns.Database:ResolveHandling(cat) end) or nil
     local result = ns.RuleEngine.classify(msg, resolver)
+
+    -- Callout detection runs regardless of pause. Match-vs-user is required —
+    -- callouts addressed to other roles still pass through unmodified.
+    --
+    -- Sprint 5 fix diagnostic: detectMatching is inlined as detect + matchesUser
+    -- so P2 (detection result) and P3 (match decision + effective role) can be
+    -- surfaced separately. The behavior is unchanged — only the visibility is.
+    local callout = nil
+    if ns.Callout and result.handling == "pass" and db and db.callout_enabled then
+        local detection = ns.Callout.detect(msg, result)
+        if db.debug_enabled then
+            -- P2: detection result. roles list if found, "nil" if not.
+            local roles_str = "nil"
+            if detection and detection.roles then
+                roles_str = "{" .. table.concat(detection.roles, ",") .. "}"
+            end
+            print("[ToxFilter Debug] Callout.detect: " .. roles_str
+                .. " handling=" .. tostring(result.handling))
+        end
+        if detection then
+            local matches = ns.Callout.matchesUser(detection)
+            if db.debug_enabled then
+                local eff_role = (ns.Database and ns.Database.GetEffectiveRole)
+                    and ns.Database:GetEffectiveRole() or nil
+                -- P3: match decision + the effective role used. Catches role
+                -- drift (auto unresolved at login window, /tox role switch
+                -- between messages, etc.).
+                print(string.format(
+                    "[ToxFilter Debug] Callout.matchesUser: %s (effective role: %s)",
+                    tostring(matches), tostring(eff_role)))
+            end
+            if matches then callout = detection end
+        end
+    end
+
+    if isPaused then
+        if channelEnabled and callout then
+            ns.Callout.playSoundIfEligible(callout)
+            local tinted = ns.Callout.tintIfEligible(msg, callout)
+            if tinted then return false, tinted, ... end
+        end
+        return false
+    end
 
     if channelEnabled then
         if result.handling == "silent" then
@@ -159,6 +208,14 @@ local function chatFilter(_chatFrame, event, msg, ...)
     local moment = nil
     if ns.PositiveCapture and result.handling == "pass" then
         moment = ns.PositiveCapture.capture(msg, result, event)
+    end
+
+    -- Co-occurrence: callout match preempts positive highlight. Sound plays
+    -- once per matched callout regardless of co-occurrence.
+    if channelEnabled and callout then
+        ns.Callout.playSoundIfEligible(callout)
+        local tinted = ns.Callout.tintIfEligible(msg, callout)
+        if tinted then return false, tinted, ... end
     end
 
     if channelEnabled and moment and ns.Highlight and ns.Highlight.tintIfEligible then

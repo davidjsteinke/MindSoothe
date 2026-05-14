@@ -694,6 +694,183 @@ Modified: `addon/Debug.lua` (count alias + help text), `addon/Buffer.lua` (debug
 
 Standard grep set ran clean against `!|great|oops|sorry`. New debug-print strings contain no display pipes; no functional WoW escapes in scope.
 
+## Build 1 Sprint 5: tactical role-callout prioritization
+
+**Status: complete.** Version `0.1.0-sprint5`. Schema v6.
+
+Sprint 5 layers a passive UI enhancement on top of Sprint 4a's role-detection infrastructure and Sprint 4b's chat-tinting pattern: when an incoming message contains a tactical callout addressed to the user's effective role, apply a warm-amber color tint and play a subtle audio cue. Opt-in via `/tox callout on`; off by default.
+
+### Module layout
+
+```
+addon/
+  Callout.lua          detection + match-vs-user + tint helper + sound trigger
+corpus/sprint5.json    30 entries: 12 positives, 10 negatives, 4 multi-role, 4 match-vs-role
+```
+
+`Callout.detect(msg, classifier_result)` is pure (no DB calls) so the corpus harness tests it without a database stub. `Callout.matchesUser`, `tintIfEligible`, and `playSoundIfEligible` consult `ns.Database` directly.
+
+### Architectural principle: time-critical UI stays active during combat (load-bearing)
+
+Sprint 4b's `Highlight` (positive moments) pauses during combat because positive moments can be reviewed later via `/tox lift`. Sprint 5's `Callout` does **not** pause — callouts during combat are precisely the moment that matters most. The general rule, applied to all future UI sprints:
+
+- **Passive UI for emotional support → pauses during the Midnight combat window.** Sprint 4b Highlight, future positive-affect surfaces.
+- **Time-critical UI → stays active during combat.** Sprint 5 Callout, future tactical alerts.
+
+`chatFilter` was restructured to support this distinction (see "chatFilter dispatch — Sprint 5 final" below).
+
+### Color register: warm amber `|cFFEEBB55`
+
+RGB(238, 187, 85). Chosen for:
+
+- **Discrimination from Sprint 4b's positive green `|cFF66AA66`** under all three common colorblindness types. Deuteranopia and protanopia separate the colors via the substantial lightness gap (~170 perceived vs ~140) and the much larger red channel (238 vs 102). Tritanopia separates them via the red component (amber reads red-ish, green reads gray-green).
+- **Warning register** ("look here, this is for you"), not celebratory. Cyan/blue would read informational but conflicts with WoW class-color cyan (mage) and is harder for tritanopia to separate from green.
+- **Subtle.** Not pure system-yellow `|cFFFFFF00`, not legendary-orange `|cFFFF8000`. Sits in an open register between subtle and salient.
+
+Future sprints needing additional tint colors must check this list before picking. Current registers occupied:
+- `|cFF66AA66` desaturated green — Sprint 4b positive moments (passive, pauses)
+- `|cFFEEBB55` warm amber — Sprint 5 role callouts (time-critical, active during combat)
+
+### Sound: FileDataID `540061` via `PlaySound(..., "Master")`
+
+Locked Sprint 5. Channel `"Master"` routes through master volume per spec. The sound ID is one line in `Callout.lua` (`local CALLOUT_SOUND_ID = 540061`); J13 verification asks whether the sound feels like "this is for you" rather than a common WoW event (whisper, AH outbid, raid warning, etc.). If swap needed, that's a one-line edit.
+
+### Detection algorithm
+
+`Callout.detect`:
+1. **Sarcasm gate.** If `classifier_result.signals` contains any sarcasm flag (antonymic_praise / passive_thanks / slash_s / maybe_try), return nil.
+2. **Attack-label gate.** If `classifier_result.labels` contains any `attack` token, return nil ("you trash tank" is already handled by Sprint 2's classifier; treating it as a callout would be wrong).
+3. **Callout-local tokenization** on the raw message: split on `[\s/]+` so `tank/healer` parses as two tokens. Lowercase + trim trailing/leading punctuation. Not via `Normalize` because Callout doesn't need hash-table alignment.
+4. **Role-target scan.** For each token matching `Patterns.ROLE_TARGETS` (singular + plural + diminutive), check ±3 window for a `Patterns.CALLOUT_VERBS` token. If present, the callout fires for that role.
+5. **Multi-role join.** "tank and healer cooldowns" — the trailing verb anchors the first role via window; the second role gets pulled in by direct adjacency or `and`/`&`/`+` separator to an already-hit role position.
+6. Return `{ roles = ["tank", "healer"], span = msg }` or nil. Role order is stable: tank, healer, dps.
+
+### Pattern data (Patterns.lua additions)
+
+- `ROLE_TARGETS` — singular + plural + diminutive role tokens. Distinct from `ROLE_NOUNS` (the classifier's role-attack anchor set, intentionally singular-only per Sprint 2 design). `PositiveCapture` was refactored to use this shared table instead of its own local copy.
+- `ROLE_TARGET_TO_ROLE` — token → canonical role string (`tank`/`healer`/`dps`).
+- `CALLOUT_VERBS` — imperative/directive verbs (subset of `TACTICAL_MARKERS` filtered to imperatives; `stop` added during Sprint 5 corpus tuning). Mechanic nouns (fire, void, swirly, puddle) are deliberately excluded — those are status mentions, not directives.
+- `CALLOUT_JOINS` — `{and, &, +}`. The `/` separator is handled by Callout's tokenization, not by this set.
+
+`ROLE_NOUNS` extension (adding plurals) is deferred to Sprint 7 tuning so the Sprint 2 classifier behavior stays unchanged.
+
+### Schema v6 migration
+
+`migrations[6]` backfills three fields on existing v5 users:
+
+```
+callout_enabled = false   -- master off by default (opt-in, same default as positive_ui)
+callout_ui      = true    -- visual sub-toggle (meaningful only when master is on)
+callout_sound   = true    -- audio sub-toggle (same)
+```
+
+Fresh installs land at v6 via DEFAULTS.
+
+### chatFilter dispatch — Sprint 5 final (load-bearing — don't regress)
+
+```
+1. master toggle off → pass
+2. RuleEngine.classify (read-only; always runs)
+3. Callout.detectMatching (read-only; runs during pause too — time-critical)
+4. If paused:
+     - if channel-on and callout matches: tint + sound, return tinted
+     - else: pass (no handling, no capture, no highlight, no fixtures)
+5. Non-paused, channel-on: handling (silent/del/edit) with flagged-event buffer write
+6. Non-paused: PositiveCapture.capture on pass verdict (whisper carve-out inside)
+7. Non-paused, channel-on: co-occurrence — callout match preempts positive Highlight (callout color wins, sound plays once)
+8. Non-paused, channel-on: Highlight.tintIfEligible only when no callout match
+9. Non-paused, channel-on: Sprint 0 fixtures
+```
+
+The `isPaused` check is no longer the first short-circuit. Callout's read-only classifier output + chat-frame string return + `PlaySound` are all passive operations safe to perform during the Midnight restricted-execution window. Buffer writes (PositiveCapture, flagged-event recording) and content modification (handling branches, fixtures) remain paused.
+
+### Slash commands
+
+| Group   | Commands |
+|---------|----------|
+| Callout | `/tox callout`, `/tox callout on\|off`, `/tox callout ui on\|off`, `/tox callout sound on\|off` |
+
+Bare `/tox callout` **prints state** (master + ui + sound), does not toggle. This is deliberately different from `/tox positive ui` (no-arg toggles per Sprint 4 fix2 I2) — the user spec defined them differently. Help group "Callout" added between Ritual and Breathe in the grouped help view. State surfaced in `/tox list` comprehensive snapshot.
+
+### Co-occurrence with PositiveCapture
+
+A message can detect as both a positive moment (Sprint 4a) and a role callout. Precedence per spec:
+- PositiveCapture still records the moment to buffer (data layer).
+- For chat display: callout tint preempts the green positive tint.
+- Audio: callout sound plays once (no stacking).
+
+Implementation: `chatFilter` calls Callout first; if callout matches, returns tinted string. Only when callout doesn't match does Highlight.tintIfEligible get a chance.
+
+### Test corpus
+
+`corpus/sprint5.json` — 30 entries. Sprint 5 ships at 100% detection, 100% negative-rejection, 100% role-match against the seeded corpus. Sprint 2 corpus still at 100% — no regression.
+
+### Known false-positive / false-negative risks (Sprint 7 tuning)
+
+- **`great pull tank` (no mocking noun) fires as a tank callout.** This is earnest praise containing a callout verb. The current detection has no way to distinguish "great pull tank" (praise) from "tank, great pull" (also praise) from "pull tank" (callout). Acceptable false-positive cost: the user gets an amber-tinted "great pull tank!" — annoying-ish but not harmful. Sprint 7 can extend the sarcasm/praise gate (e.g. add `pull` to `ANTONYMIC_PRAISE_SECOND`, or have Callout reject when a positive verb sits adjacent to the role token).
+- **`tanks died` doesn't fire.** No verb in window. By design — status reports aren't callouts. Listed for completeness.
+- **`tank low`, `dps oom`** — status, not callout. `low` and `oom` are intentionally excluded from `CALLOUT_VERBS`. Acceptable.
+- **Self-attribution (`I'm the tank`)** — no callout verb in window. By design.
+- **Adversarial sarcasm** — `great pull tank einstein` currently flags as a callout because `pull` isn't in `ANTONYMIC_PRAISE_SECOND`. The corpus uses `good job tank einstein` instead (which the existing sarcasm pipeline does catch). The deeper pattern gap is documented above.
+
+### Harness extension
+
+`scripts/run-corpus.sh` now runs two passes: Sprint 2 (existing) and Sprint 5 (new). The harness loads `Callout.lua` and stubs `ns.Database` with a per-entry effective-role for the role-match assertion. Python-side conversion adds a second JSON-to-Lua step for `corpus/sprint5.json`; the harness exits cleanly when the file is absent (skip with note).
+
+### Files touched
+
+New: `addon/Callout.lua`, `corpus/sprint5.json`. Modified: `addon/Patterns.lua` (ROLE_TARGETS, ROLE_TARGET_TO_ROLE, CALLOUT_VERBS, CALLOUT_JOINS), `addon/PositiveCapture.lua` (refactor to shared role data), `addon/Database.lua` (schema v6, migration, defaults), `addon/Commands.lua` (`/tox callout` + help + list), `addon/ToxFilter.lua` (chatFilter restructure, VERSION), `addon/ToxFilter.toc` (Callout.lua, Version), `scripts/run-corpus.sh` (Sprint 5 pass), `.luacheckrc` (`PlaySound`). Doc updates: `CLAUDE.md` (this section), `addon/README.md`, `Verification_Protocol.md` (Section J).
+
+### Tonal-grep + pipe-doubling discipline
+
+Standard grep set extended to include `addon/Callout.lua`. Color escapes `|cFFEEBB55` / `|r` in Callout.lua remain single-pipe per the documented Sprint 4b carve-out.
+
+## Build 1 Sprint 5 fix: audio swap + state-persistence trap diagnosed
+
+**Status: complete.** Version `0.1.1-sprint5-fix`. No schema change.
+
+In-game verification of `0.1.0-sprint5` surfaced two reported issues. Diagnostic prints (gated on `db.debug_enabled`) revealed that one was a real silent-sound bug and the other was a misinterpreted state-persistence trap, not a code latch.
+
+### Issue 1: sound `540061` was silent in-client (real bug, swapped)
+
+Documentation suggested `540061` (a FileDataID) should play through `PlaySound(id, "Master")`. In-client testing showed it produced no audible output (confirmed via `/run PlaySound(540061)` silent, `/run PlaySound(8959)` audible). Swapped `CALLOUT_SOUND_ID` to `8960` (`SOUNDKIT.READY_CHECK`). Audible confirmed. The constant is one line in `addon/Callout.lua` for future swaps.
+
+**Project lesson:** PlaySound IDs sourced from documentation/databases need in-client verification before locking. The silent-vs-audible distinction isn't always documented; the FileDataID vs old SoundKit ID system has compatibility quirks. Future audio choices should test in-client during the build phase, not at verification.
+
+**Subjective register, locked-for-now, flagged-for-future:** `8960` is audible but reads as too prominent for ongoing combat use. Locked at `8960` in this fix; a future quieter alternate (candidates: `38326`, `46167`, or other softer chimes) will be picked when the user has time to feel-test in real combat. The swap is one line.
+
+### Issue 2: reported "first-fire-only" was a state-persistence trap, not a code latch
+
+The original report described "first callout tints; subsequent callouts don't" across messages in the same session. Diagnostic prints showed:
+
+```
+playSoundIfEligible entry: enabled=true, sound=false, has_detection=true
+tintIfEligible entry: enabled=true, ui=false, has_detection=true
+tintIfEligible returning: nil (ui_off)
+```
+
+Every print block — including for messages that should have tinted — showed `ui=false` and `sound=false`. `/tox callout on` only flips `callout_enabled`; the sub-toggles persisted from prior J7/J8 sub-toggle testing. AceDB preserves non-default writes across `/reload`, so a `false` set earlier survived indefinitely. After flipping ui+sound back on via `/tox callout ui on` and `/tox callout sound on`, three consecutive `healers dispel` messages all tinted and played audio correctly. No first-fire latch exists in the code.
+
+**Trap shape (worth remembering, applies project-wide):** AceDB persists explicit non-default writes. A sub-toggle off-test followed by re-enabling only the master leaves the sub-toggles off. Verification of any feature with sub-toggles must either (a) explicitly restore sub-toggles in Phase 0 / pre-test setup, or (b) inspect state via `/tox callout` (or equivalent) before declaring a behavior bug. This is the same shape of trap as the Sprint 4 fix2 F18 issue (`whisper_intro_shown` persisting `true` across sessions and masking a re-test) — same lesson, different field.
+
+### Diagnostic prints kept as permanent infrastructure (Sprint 4 fix3 precedent)
+
+Six debug-gated prints landed in `addon/ToxFilter.lua` (chatFilter entry, Callout.detect result, Callout.matchesUser result) and `addon/Callout.lua` (tintIfEligible entry/return, playSoundIfEligible entry). All gated on `g.debug_enabled` — zero cost when off. The `detectMatching` call in chatFilter was inlined as `detect` + `matchesUser` so the intermediate detection result is visible separately from the match decision.
+
+These prints are the established pattern for runtime-only investigations (Sprint 4 fix3 introduced it for counter-scope diagnosis; Sprint 5 fix extends it). They paid for themselves on this very investigation by surfacing the sub-toggle state in one read of the chat log. Future runtime-only bugs follow the same approach: add debug-gated prints, deploy, capture log, diagnose. Do not remove these in subsequent sprints unless the diagnostic-print infrastructure is being replaced by something better (live state inspector, etc.).
+
+### Corpus addition
+
+`corpus/sprint5.json` gains `cl_neg_healer_needs_to_heal` — `"healer needs to heal"` with `expected_roles = []`. Two role-target tokens (`healer`, `heal`) with no callout verb in window; should return nil. Locks in the negative behavior so future tuning that touches verb sets or detection logic can't accidentally over-fire on bare role mentions. Sprint 5 corpus is now 31 entries (was 30) at 100%.
+
+### Files touched
+
+Modified: `addon/Callout.lua` (sound ID, P4/P5/P6 prints), `addon/ToxFilter.lua` (P1/P2/P3 prints, `detectMatching` inlined at call site, VERSION), `addon/ToxFilter.toc` (Version), `corpus/sprint5.json` (one negative entry). Doc updates: `CLAUDE.md` (this section).
+
+### Tonal-grep + pipe-doubling discipline
+
+Standard grep set clean across modified files. New debug-print strings contain no `!|great|oops|sorry` violations and no display pipes.
+
 ## What's out of scope per sprint
 
 - Sprint 0 (done): skeleton + four-mode dispatcher + Midnight pause logic.
@@ -705,6 +882,8 @@ Standard grep set ran clean against `!|great|oops|sorry`. New debug-print string
 - Sprint 4 fix (done, Build 1): post-verification fixes (ASCII arrows, channel alias, default interpolation, blacklist edit-routing, whisper text, instance-only per-bucket counters, breathing combat-cancel) + `/tox debug` developer counter tool.
 - Sprint 4 fix2 (done, Build 1): second post-verification round (whisper privacy bit reset via v5 migration, chatFilter channel-off no longer short-circuits capture with whisper privacy carve-out, `-Server` suffix strip on UnitName, `/tox positive ui` no-arg toggles, combat-lockdown gate on `/tox breathe`, cycle indicator on the breathing frame, `/tox ready cancel` master abort, `/tox stats` vs `/tox session` discoverability fixes).
 - Sprint 4 fix3 (done, Build 1): third post-verification round — `count` alias for `counter`; debug-gated diagnostic prints on counter increments and encounter-start so future scope/name-mismatch investigations are self-evident; no code change for the reported "additive counter set" (source already uses set semantics) or for the scope-filter (trace clean); Hypothesis B (encounter pull required for surfacing) documented as a permanent testing-methodology gotcha.
+- Sprint 5 (done, Build 1): tactical role-callout prioritization — warm-amber chat tint + audio cue when an incoming message contains a tactical callout addressed to the user's effective role; opt-in via `/tox callout on`, ui and sound sub-toggles; time-critical UI principle (fires during combat, unlike Sprint 4b's passive Highlight); `Callout.lua` + corpus `sprint5.json`; shared `ROLE_TARGETS` table replaces PositiveCapture's local copy.
+- Sprint 5 fix (done, Build 1): audio swap `540061` → `8960` (former silent in-client despite docs); diagnostic prints in chatFilter + Callout permanent (Sprint 4 fix3 pattern); reported "first-fire-only" diagnosed as a sub-toggle state-persistence trap (AceDB preserves non-default writes — same shape as Sprint 4 fix2 F18 whisper-intro bit); `8960` audible but subjectively too prominent, flagged for future quieter swap; `cl_neg_healer_needs_to_heal` corpus entry added.
 - Sprint 5 adds: role-aware callout prioritization (consumes the role setting from Sprint 3).
 - Build 1 also brings configuration UI and Sprint 7's threshold gate.
 - Build 2 is the companion app.

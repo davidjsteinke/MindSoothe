@@ -39,15 +39,18 @@ local CALLOUT_PHRASES = {
     { "good", "run" },
 }
 
-local ROLE_TARGET_TOKENS = set({
-    "tank", "tanks", "healer", "healers", "heal", "heals", "dps",
-})
+-- Sprint 5 refactor: role-target lookup lives in Patterns.lua so Callout.lua
+-- and PositiveCapture.lua share the same definition. Local accessors below
+-- preserve the previous direct-membership / per-role-set call shape so the
+-- rest of this module is unchanged.
+local function roleTargetMatches(token)
+    return ns.Patterns.ROLE_TARGETS[token] == true
+end
 
-local ROLE_TO_TARGET = {
-    tank   = set({ "tank", "tanks" }),
-    healer = set({ "healer", "healers", "heal", "heals" }),
-    dps    = set({ "dps" }),
-}
+local function roleTargetMatchesUser(token, role)
+    if not role then return false end
+    return ns.Patterns.ROLE_TARGET_TO_ROLE[token] == role
+end
 
 local function userNameLower()
     if type(UnitName) ~= "function" then return nil end
@@ -98,9 +101,8 @@ local function detect(normalized_tokens, signals)
     for i = 1, n - 1 do
         if THANKS_TOKENS[normalized_tokens[i]] then
             local nxt = normalized_tokens[i + 1]
-            if ROLE_TARGET_TOKENS[nxt] then
-                local target = role and ROLE_TO_TARGET[role] or nil
-                local direct = target and target[nxt] == true or false
+            if roleTargetMatches(nxt) then
+                local direct = roleTargetMatchesUser(nxt, role)
                 return { pattern = "thanks_role", direct = direct }
             end
             if userL and nxt == userL then

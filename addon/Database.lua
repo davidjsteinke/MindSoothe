@@ -10,7 +10,7 @@
 
 local _, ns = ...
 
-local LATEST_SCHEMA_VERSION = 5
+local LATEST_SCHEMA_VERSION = 6
 
 -- Schema. Anything user-overridable is named here so a fresh install lands at
 -- the latest version already populated. handling[<cat>] left absent on purpose:
@@ -67,6 +67,14 @@ local DEFAULTS = {
         -- /tox debug pretends to be an unknown command (only /tox debug
         -- enable always works, to flip the flag).
         debug_enabled = false,
+
+        -- Sprint 5: tactical role-callout prioritization. Master off by
+        -- default (opt-in, same default as Sprint 4b's positive_ui). When
+        -- master is on, the sub-toggles default true; users in voice chat can
+        -- disable callout_sound while keeping callout_ui.
+        callout_enabled = false,
+        callout_ui      = true,
+        callout_sound   = true,
 
         session_buffer = {},
         pinned_moments = {},
@@ -147,6 +155,14 @@ local migrations = {
         -- false here so existing testers see the privacy note on next
         -- /tox channel whisper on. One-shot reset; safe to drop after launch.
         g.whisper_intro_shown = false
+    end,
+    [6] = function(g)
+        -- Sprint 5: tactical role-callout fields. Master off by default;
+        -- sub-toggles default true so flipping the master on gets the full
+        -- feature without a second slash command.
+        if g.callout_enabled == nil then g.callout_enabled = false end
+        if g.callout_ui      == nil then g.callout_ui      = true  end
+        if g.callout_sound   == nil then g.callout_sound   = true  end
     end,
 }
 

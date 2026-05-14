@@ -367,6 +367,10 @@ function Commands.list()
     print(string.format("  role:             %s (effective: %s)", g.role, effectiveRole))
     print(string.format("  blacklist:        %d entries", ns.UserRules.count("blacklist")))
     print(string.format("  whitelist:        %d entries", ns.UserRules.count("whitelist")))
+    print(string.format("  callout:          master %s, ui %s, sound %s",
+        g.callout_enabled and "on" or "off",
+        g.callout_ui      and "on" or "off",
+        g.callout_sound   and "on" or "off"))
 end
 
 -- ===== Help =====
@@ -385,6 +389,8 @@ local HELP_GROUPS = {
     { "Stats",     "/tox stats [<dungeon>||threshold <N>||surface on||off] || /tox week" },
     { "Pinned",    "/tox star <id> || /tox unstar <id> || /tox starred" },
     { "Ritual",    "/tox check [add||remove||list||y||n||cancel] [item]" },
+    { "Callout",   "/tox callout || /tox callout on||off"
+                .. " || /tox callout ui on||off || /tox callout sound on||off" },
     { "Breathe",   "/tox breathe || /tox breathe cycles <N>"
                 .. " || /tox breathe count <N> || /tox breathe position <x> <y>" },
     { "Ready",     "/tox ready || /tox ready list || /tox ready cancel"
@@ -445,6 +451,11 @@ local HELP_COMMANDS = {
              .. " /tox check add <item> / /tox check remove <item> / /tox check list manage items."
              .. " /tox check y / /tox check n advance the ritual."
              .. " /tox check cancel aborts. Default item list is empty.",
+    callout   = "/tox callout — show current callout state."
+             .. " /tox callout on||off toggles the master switch (off by default)."
+             .. " /tox callout ui on||off — visual amber tint when a callout addresses your role."
+             .. " /tox callout sound on||off — audio cue at the same moment."
+             .. " Callouts fire during combat too (time-critical).",
     breathe   = "/tox breathe — run the box-breathing animation."
              .. " /tox breathe cycles <1-20> sets cycle count (default 4)."
              .. " /tox breathe count <1-20> sets seconds per phase (default 4)."
@@ -485,6 +496,7 @@ function Commands.summary()
         .. " || /tox lift || /tox positive ... || /tox session"
         .. " || /tox stats ... || /tox week || /tox star ... || /tox starred"
         .. " || /tox check ... || /tox breathe ... || /tox ready ..."
+        .. " || /tox callout ..."
         .. " || /tox retention ... || /tox list"
         .. " || /tox version || /tox rules || /tox test <msg> || /tox classify <msg>"
         .. " || /tox rewrite <msg> || /tox help")
@@ -1056,6 +1068,58 @@ function Commands.ready(rest)
         .. " || /tox ready order <step> <step> <step>")
 end
 
+-- Sprint 5: /tox callout. Master toggle + UI/sound sub-toggles. No-arg form
+-- prints state for all three (matches the user spec; differs from /tox
+-- positive's no-arg-toggles behavior). Sub-toggles only apply meaningfully
+-- while the master is enabled; the printed state surfaces both regardless.
+function Commands.callout(rest)
+    local g = db(); if not g then return end
+    local sub, after = rest:match("^(%S*)%s*(%S*)$")
+    sub = (sub or ""):lower()
+    after = (after or ""):lower()
+
+    if sub == "" then
+        out("Callout: master "
+            .. (g.callout_enabled and "on" or "off")
+            .. ", ui "    .. (g.callout_ui    and "on" or "off")
+            .. ", sound " .. (g.callout_sound and "on" or "off") .. ".")
+        return
+    end
+
+    if sub == "on" then
+        g.callout_enabled = true
+        out("Callout enabled.")
+        return
+    end
+    if sub == "off" then
+        g.callout_enabled = false
+        out("Callout disabled.")
+        return
+    end
+
+    if sub == "ui" then
+        if after ~= "on" and after ~= "off" then
+            out("Usage: /tox callout ui <on||off>")
+            return
+        end
+        g.callout_ui = (after == "on")
+        out("Callout visual " .. (g.callout_ui and "enabled" or "disabled") .. ".")
+        return
+    end
+    if sub == "sound" then
+        if after ~= "on" and after ~= "off" then
+            out("Usage: /tox callout sound <on||off>")
+            return
+        end
+        g.callout_sound = (after == "on")
+        out("Callout sound " .. (g.callout_sound and "enabled" or "disabled") .. ".")
+        return
+    end
+
+    out("Usage: /tox callout || /tox callout on||off"
+        .. " || /tox callout ui on||off || /tox callout sound on||off")
+end
+
 function Commands.retention(rest)
     local arg = rest:match("^(%S+)") or ""
     if arg == "" then
@@ -1104,6 +1168,7 @@ local DISPATCH = {
     retention = function(rest) Commands.retention(rest) end,
     breathe   = function(rest) Commands.breathe(rest) end,
     ready     = function(rest) Commands.ready(rest)   end,
+    callout   = function(rest) Commands.callout(rest) end,
     debug     = function(rest) if ns.Debug then ns.Debug.dispatch(rest) else
                                    out("Unknown command 'debug'. Try /tox help.") end end,
 }

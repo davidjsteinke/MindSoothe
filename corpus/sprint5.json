@@ -1,0 +1,226 @@
+{
+  "version": "sprint5-v1",
+  "notes": "Callout detection corpus. Each entry has expected_roles (the roles detection should flag) and optionally user_role_for_test + expected_match for the role-match function. Detection is pure (no DB); match consults a stubbed effective-role from the harness.",
+  "entries": [
+    {
+      "id": "cl_tank_pull",
+      "input": "tank pull more",
+      "expected_roles": ["tank"],
+      "user_role_for_test": "tank",
+      "expected_match": true
+    },
+    {
+      "id": "cl_interrupt_tank",
+      "input": "interrupt now tank",
+      "expected_roles": ["tank"],
+      "user_role_for_test": "tank",
+      "expected_match": true
+    },
+    {
+      "id": "cl_healers_dispel",
+      "input": "healers dispel debuffs",
+      "expected_roles": ["healer"],
+      "user_role_for_test": "healer",
+      "expected_match": true
+    },
+    {
+      "id": "cl_dps_switch",
+      "input": "dps switch to add",
+      "expected_roles": ["dps"],
+      "user_role_for_test": "dps",
+      "expected_match": true
+    },
+    {
+      "id": "cl_all_dps_stop",
+      "input": "all dps stop dpsing",
+      "expected_roles": ["dps"],
+      "user_role_for_test": "dps",
+      "expected_match": true
+    },
+    {
+      "id": "cl_tanks_stack",
+      "input": "tanks stack on me",
+      "expected_roles": ["tank"],
+      "user_role_for_test": "tank",
+      "expected_match": true
+    },
+    {
+      "id": "cl_healer_interrupt",
+      "input": "healer needs interrupt help",
+      "expected_roles": ["healer"],
+      "user_role_for_test": "healer",
+      "expected_match": true
+    },
+    {
+      "id": "cl_kick_cast_tank",
+      "input": "kick the cast tank",
+      "expected_roles": ["tank"],
+      "user_role_for_test": "tank",
+      "expected_match": true
+    },
+    {
+      "id": "cl_soak_puddle_dps",
+      "input": "dps soak the puddle",
+      "expected_roles": ["dps"],
+      "user_role_for_test": "dps",
+      "expected_match": true
+    },
+    {
+      "id": "cl_spread_healers",
+      "input": "spread out healers",
+      "expected_roles": ["healer"],
+      "user_role_for_test": "healer",
+      "expected_match": true
+    },
+    {
+      "id": "cl_taunt_tank",
+      "input": "tank taunt now",
+      "expected_roles": ["tank"],
+      "user_role_for_test": "tank",
+      "expected_match": true
+    },
+    {
+      "id": "cl_focus_dps",
+      "input": "dps focus the add",
+      "expected_roles": ["dps"],
+      "user_role_for_test": "dps",
+      "expected_match": true
+    },
+
+    {
+      "id": "cl_multi_tank_healer_and",
+      "input": "tank and healer cooldowns",
+      "expected_roles": ["tank", "healer"],
+      "user_role_for_test": "tank",
+      "expected_match": true
+    },
+    {
+      "id": "cl_multi_tanks_dps_focus",
+      "input": "tanks and dps focus add",
+      "expected_roles": ["tank", "dps"],
+      "user_role_for_test": "dps",
+      "expected_match": true
+    },
+    {
+      "id": "cl_multi_slash_tank_healer",
+      "input": "tank/healer cooldowns now",
+      "expected_roles": ["tank", "healer"],
+      "user_role_for_test": "healer",
+      "expected_match": true
+    },
+    {
+      "id": "cl_multi_defensives",
+      "input": "tank and healer use defensives",
+      "expected_roles": ["tank", "healer"],
+      "user_role_for_test": "tank",
+      "expected_match": true
+    },
+
+    {
+      "id": "cl_neg_thanks_tank",
+      "input": "thanks tank",
+      "expected_roles": [],
+      "user_role_for_test": "tank",
+      "expected_match": false
+    },
+    {
+      "id": "cl_neg_trash_tank",
+      "input": "you trash tank",
+      "expected_roles": [],
+      "user_role_for_test": "tank",
+      "expected_match": false
+    },
+    {
+      "id": "cl_neg_good_job_tank",
+      "input": "good job tank",
+      "expected_roles": [],
+      "user_role_for_test": "tank",
+      "expected_match": false
+    },
+    {
+      "id": "cl_neg_im_the_tank",
+      "input": "i'm the tank",
+      "expected_roles": [],
+      "user_role_for_test": "tank",
+      "expected_match": false
+    },
+    {
+      "id": "cl_neg_tank_died",
+      "input": "tank died",
+      "expected_roles": [],
+      "user_role_for_test": "tank",
+      "expected_match": false
+    },
+    {
+      "id": "cl_neg_fucking_move",
+      "input": "fucking move out of fire",
+      "expected_roles": [],
+      "user_role_for_test": "tank",
+      "expected_match": false
+    },
+    {
+      "id": "cl_neg_move_out_of_fire",
+      "input": "move out of fire",
+      "expected_roles": [],
+      "user_role_for_test": "tank",
+      "expected_match": false
+    },
+    {
+      "id": "cl_neg_sarcastic_praise_tank",
+      "input": "good job tank einstein",
+      "expected_roles": [],
+      "user_role_for_test": "tank",
+      "expected_match": false
+    },
+    {
+      "id": "cl_neg_thanks_for_carry",
+      "input": "thanks for the carry tank",
+      "expected_roles": [],
+      "user_role_for_test": "tank",
+      "expected_match": false
+    },
+    {
+      "id": "cl_neg_ty_tank",
+      "input": "ty tank",
+      "expected_roles": [],
+      "user_role_for_test": "tank",
+      "expected_match": false
+    },
+    {
+      "id": "cl_neg_healer_needs_to_heal",
+      "input": "healer needs to heal",
+      "expected_roles": [],
+      "user_role_for_test": "healer",
+      "expected_match": false
+    },
+
+    {
+      "id": "cl_match_tank_for_healer",
+      "input": "tank taunt now",
+      "expected_roles": ["tank"],
+      "user_role_for_test": "healer",
+      "expected_match": false
+    },
+    {
+      "id": "cl_match_healer_for_dps",
+      "input": "healers dispel debuffs",
+      "expected_roles": ["healer"],
+      "user_role_for_test": "dps",
+      "expected_match": false
+    },
+    {
+      "id": "cl_match_tank_role_nil",
+      "input": "tank pull more",
+      "expected_roles": ["tank"],
+      "user_role_for_test": null,
+      "expected_match": false
+    },
+    {
+      "id": "cl_match_multi_for_dps",
+      "input": "tank and healer cooldowns",
+      "expected_roles": ["tank", "healer"],
+      "user_role_for_test": "dps",
+      "expected_match": false
+    }
+  ]
+}
