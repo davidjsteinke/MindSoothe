@@ -1083,12 +1083,20 @@ function Commands.callout(rest)
             .. (g.callout_enabled and "on" or "off")
             .. ", ui "    .. (g.callout_ui    and "on" or "off")
             .. ", sound " .. (g.callout_sound and "on" or "off") .. ".")
+        if ns.Callout and ns.Callout.GetStateMismatchNote then
+            local note = ns.Callout.GetStateMismatchNote()
+            if note then out(note) end
+        end
         return
     end
 
     if sub == "on" then
         g.callout_enabled = true
         out("Callout enabled.")
+        if ns.Callout and ns.Callout.GetStateMismatchNote then
+            local note = ns.Callout.GetStateMismatchNote()
+            if note then out(note) end
+        end
         return
     end
     if sub == "off" then

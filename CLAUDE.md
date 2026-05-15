@@ -871,6 +871,41 @@ Modified: `addon/Callout.lua` (sound ID, P4/P5/P6 prints), `addon/ToxFilter.lua`
 
 Standard grep set clean across modified files. New debug-print strings contain no `!|great|oops|sorry` violations and no display pipes.
 
+## Build 1 Sprint 5 fix2: callout state-mismatch note
+
+**Status: complete.** Version `0.1.2-sprint5-fix2`. No schema change.
+
+In-game verification of `0.1.1-sprint5-fix` exposed a UX gap, not a bug. A user who toggled a callout sub-toggle off during prior testing (`/tox callout ui off` or `/tox callout sound off`), then later flipped only the master back on with `/tox callout on`, sees confirmation that the feature is enabled but no callouts ever fire visibly or audibly. The sub-toggle state persisted across sessions (AceDB preserves explicit non-default writes), and the master-on confirmation gave no signal that the feature was effectively neutered. The Sprint 5 fix diagnostic prints surfaced this exact trap once (the user re-enabled sub-toggles by hand once they saw the debug state); fix2 closes the gap so a non-developer never has to enable debug to find it.
+
+### The state-persistence trap pattern (load-bearing — name and reuse)
+
+This is the third instance of the same trap shape:
+
+- **Sprint 4 fix2 F18** — `whisper_intro_shown` persisted `true` across sessions, so the privacy note silently failed to re-print during verification re-runs.
+- **Sprint 5 fix** — sub-toggle off-state persisted across sessions, so re-enabling the master alone left the feature visually/audibly silent.
+- **Sprint 5 fix2** — same shape, different fix angle: instead of resetting the persisted state via migration, surface the inconsistency in the user-facing path.
+
+**Generalized rule for any feature with master + sub-toggles:** the master-on path (slash command, status query, addon load) should detect inconsistent sub-toggle state and surface a brief explanatory note pointing at the specific sub-toggle command to fix it. The note appears only when the user might be surprised — never after an explicit user disable (`off`, `ui off`, `sound off`), because the user just made that choice deliberately. Future sprints adding any feature with this shape (master + N sub-toggles) should include a state-mismatch note from the start, not as a follow-up fix.
+
+### Implementation
+
+`Callout.GetStateMismatchNote()` lives in `addon/Callout.lua` next to the other DB-aware helpers. Returns nil when state is consistent (master off, or master on with both sub-toggles on); returns a single combined string when master is on but at least one sub-toggle is off. Three combined-string variants (ui off only, sound off only, both off) — single combined note per spec, not split. Callers add the `[ToxFilter]` prefix, keeping the helper composable and testable.
+
+Three call sites:
+
+- `addon/Commands.lua` — `Commands.callout` no-arg branch (after the state line) and `sub == "on"` branch (after `out("Callout enabled.")`).
+- `addon/ToxFilter.lua` — `OnEnable`, after the version-confirmation `print` so `/reload` re-checks state on every load.
+
+Deliberately **not** called after `off`, `ui off`, `ui on`, `sound off`, `sound on`. The first three are explicit user disables (irrelevant to remind them). The `on` cases for sub-toggles bring the user closer to consistency, not away from it; if they flip the second sub-toggle on, the next state query won't print a note (consistency reached). The deliberate omission is to keep the surface from feeling nagging.
+
+### Files touched
+
+Modified: `addon/Callout.lua` (new helper), `addon/Commands.lua` (two call sites in `Commands.callout`), `addon/ToxFilter.lua` (call site in `OnEnable`, VERSION), `addon/ToxFilter.toc` (Version). Doc updates: `CLAUDE.md` (this section), `addon/README.md` (one line on sub-toggle persistence).
+
+### Tonal-grep + pipe-doubling discipline
+
+Standard grep set ran clean against `!|great|oops|sorry`. New note strings contain a literal `or` between two slash commands (no display pipes), so no pipe-doubling concerns. Discipline still ran.
+
 ## What's out of scope per sprint
 
 - Sprint 0 (done): skeleton + four-mode dispatcher + Midnight pause logic.
@@ -884,6 +919,7 @@ Standard grep set clean across modified files. New debug-print strings contain n
 - Sprint 4 fix3 (done, Build 1): third post-verification round — `count` alias for `counter`; debug-gated diagnostic prints on counter increments and encounter-start so future scope/name-mismatch investigations are self-evident; no code change for the reported "additive counter set" (source already uses set semantics) or for the scope-filter (trace clean); Hypothesis B (encounter pull required for surfacing) documented as a permanent testing-methodology gotcha.
 - Sprint 5 (done, Build 1): tactical role-callout prioritization — warm-amber chat tint + audio cue when an incoming message contains a tactical callout addressed to the user's effective role; opt-in via `/tox callout on`, ui and sound sub-toggles; time-critical UI principle (fires during combat, unlike Sprint 4b's passive Highlight); `Callout.lua` + corpus `sprint5.json`; shared `ROLE_TARGETS` table replaces PositiveCapture's local copy.
 - Sprint 5 fix (done, Build 1): audio swap `540061` → `8960` (former silent in-client despite docs); diagnostic prints in chatFilter + Callout permanent (Sprint 4 fix3 pattern); reported "first-fire-only" diagnosed as a sub-toggle state-persistence trap (AceDB preserves non-default writes — same shape as Sprint 4 fix2 F18 whisper-intro bit); `8960` audible but subjectively too prominent, flagged for future quieter swap; `cl_neg_healer_needs_to_heal` corpus entry added.
+- Sprint 5 fix2 (done, Build 1): callout state-mismatch note — `Callout.GetStateMismatchNote()` helper plus three call sites (`/tox callout` no-arg, `/tox callout on`, `OnEnable`) so a master-on with one or both sub-toggles off prints an explanatory line pointing at the specific sub-toggle command. Names the state-persistence trap pattern (third instance: F18, Sprint 5 fix, this) — load-bearing project principle for any future feature with master + sub-toggles.
 - Sprint 5 adds: role-aware callout prioritization (consumes the role setting from Sprint 3).
 - Build 1 also brings configuration UI and Sprint 7's threshold gate.
 - Build 2 is the companion app.

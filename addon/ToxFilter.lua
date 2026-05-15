@@ -13,7 +13,7 @@
 local _, ns = ...
 
 local ADDON_NAME = "ToxFilter"
-local VERSION = "0.1.1-sprint5-fix"
+local VERSION = "0.1.2-sprint5-fix2"
 
 local ToxFilter = LibStub("AceAddon-3.0"):NewAddon(
     ADDON_NAME,
@@ -385,6 +385,10 @@ function ToxFilter:OnEnable()
     self:RegisterChatCommand("tox", "OnSlashCommand")
 
     print("[ToxFilter] Loaded — version " .. VERSION)
+    if ns.Callout and ns.Callout.GetStateMismatchNote then
+        local note = ns.Callout.GetStateMismatchNote()
+        if note then print("[ToxFilter] " .. note) end
+    end
 end
 
 function ToxFilter:OnDisable()

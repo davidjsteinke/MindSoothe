@@ -101,6 +101,7 @@ Live surfacing is asymmetric: a stat is shown only when reassuring (wipe rate �
 - `/tox callout on|off` — master toggle for the entire feature. Off by default; opt-in.
 - `/tox callout ui on|off` — visual sub-toggle. When a message contains a tactical callout addressed to your effective role, the chat line is wrapped in a warm-amber color tint.
 - `/tox callout sound on|off` — audio sub-toggle. Plays a subtle UI cue at the same moment. The two sub-toggles are independent for users in voice chat who want one but not the other.
+- Sub-toggles persist independently of the master across sessions, so re-enabling the master after sub-toggles were turned off may produce no visible/audible callouts. `/tox callout` shows current state for all three.
 - Callouts fire during combat-pause windows too. Sprint 4b's passive positive-moment highlight pauses during combat (those moments can be reviewed later); callouts are time-critical and stay active.
 - Co-occurrence: a message that's both a positive moment and a callout for your role shows the callout amber tint (not the positive green). The moment is still captured to buffer.
 

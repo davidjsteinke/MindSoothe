@@ -253,6 +253,27 @@ function Callout.playSoundIfEligible(detection)
     end
 end
 
+-- Sprint 5 fix2: state-mismatch note. AceDB persists explicit non-default
+-- writes, so a sub-toggle the user disabled during testing survives /reload
+-- and continues to suppress visual or audio after the master is later flipped
+-- back on. Master-on path should surface the inconsistency. Returns a single
+-- combined string (or nil); callers add the [ToxFilter] prefix.
+function Callout.GetStateMismatchNote()
+    local g = db()
+    if not g then return nil end
+    if not g.callout_enabled then return nil end
+    if g.callout_ui and g.callout_sound then return nil end
+
+    if not g.callout_ui and not g.callout_sound then
+        return "Note: visual tint and audio cue are off."
+            .. " Run /tox callout ui on or /tox callout sound on to enable."
+    elseif not g.callout_ui then
+        return "Note: visual tint is off. Run /tox callout ui on to enable."
+    else
+        return "Note: audio cue is off. Run /tox callout sound on to enable."
+    end
+end
+
 Callout.SOUND_ID      = CALLOUT_SOUND_ID
 Callout.SOUND_CHANNEL = CALLOUT_SOUND_CHANNEL
 
