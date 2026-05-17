@@ -185,6 +185,27 @@ function TacticReminders.Surface(instance, encounter, bucket)
     for _, line in ipairs(mechanics) do
         print("[ToxFilter]   - " .. line)
     end
+
+    -- On-screen surface via RaidWarningFrame (Sprint 5b polish). Local-only:
+    -- RaidNotice_AddMessage writes directly to the user's own widget. The
+    -- network-broadcasting equivalent is SendChatMessage("...", "RAID_WARNING"),
+    -- which this addon never calls. Architectural commitment #4 (output is
+    -- for the installing user only) holds.
+    --
+    -- Tighter header on the warning frame: "Tank — Arcanotron Custos:".
+    -- Dungeon+difficulty stays in chat (review log); the on-screen surface
+    -- gets role+boss only, since the player already knows where they are.
+    local rwInfo = ChatTypeInfo and ChatTypeInfo["RAID_WARNING"]
+    if RaidWarningFrame and RaidNotice_AddMessage and rwInfo then
+        local rwHeader = displayRole(role) .. " — " .. encounter .. ":"
+        RaidNotice_AddMessage(RaidWarningFrame, rwHeader, rwInfo)
+        dprint("TacticReminders.Surface: RaidNotice header='" .. rwHeader .. "'")
+        for _, line in ipairs(mechanics) do
+            RaidNotice_AddMessage(RaidWarningFrame, line, rwInfo)
+            dprint("TacticReminders.Surface: RaidNotice line='" .. line .. "'")
+        end
+    end
+
     g.tactic_reminders_seen[key] = true
 end
 

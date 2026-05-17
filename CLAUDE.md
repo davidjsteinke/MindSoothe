@@ -57,9 +57,9 @@ WSL Ubuntu 24.04 → Windows WoW client.
 7. In-game `/reload` (manual — addon never triggers /reload itself).
 8. Verify per `Verification_Protocol.md` section for the current sprint.
 
-## Current state — Build 1 Sprint 5b
+## Current state — Build 1 Sprint 5b polish
 
-Version `0.2.0-sprint5b`. Schema v7. Pre-encounter tactical reminders module shipped; first dungeon's content (Magisters' Terrace) locked, seven dungeons of source material still pending.
+Version `0.2.1-sprint5b-polish`. Schema v7. Pre-encounter tactical reminders module shipped; first dungeon's content (Magisters' Terrace) locked, seven dungeons of source material still pending. Polish iteration moved the primary surface from chat-only to dual-surface (chat + `RaidWarningFrame`) because chat alone was too easy to miss in the brief pre-pull window.
 
 **Sprint 5b shape:**
 
@@ -70,6 +70,7 @@ Version `0.2.0-sprint5b`. Schema v7. Pre-encounter tactical reminders module shi
 - Schema migration v6 → v7 backfills the two fields.
 - `OnEncounterStart` calls `TacticReminders.Surface` BEFORE `setPaused(true)` so the function's internal `isPaused()` guard doesn't block the natural firing path.
 - 12-scenario gating-test corpus in `corpus/sprint5b_gating.lua`; harness extended in `scripts/run-corpus.sh`.
+- **Dual-surface display (polish):** Surface writes the existing multi-line block to chat (review log, full `Dungeon (bucket) — Role reminders:` header) AND posts a tighter version to `RaidWarningFrame` via `RaidNotice_AddMessage` (header `Role — Encounter:`, then one warning-frame line per mechanic). RaidWarningFrame is a local widget; `RaidNotice_AddMessage` writes directly to the user's screen and never broadcasts. Broadcasting would be `SendChatMessage(..., "RAID_WARNING")`, which this addon never calls. No audio cue — the on-screen visual is the cue; adding audio would risk doubling raid-warning sounds played by other addons.
 
 **JournalData authoring rules (load-bearing for content sprints):**
 
@@ -212,4 +213,5 @@ Each entry corresponds to a detailed section in `CLAUDE_ARCHIVE.md`. The archive
 - **Sprint 5** — tactical role-callout prioritization (warm-amber tint + audio cue, `/tox callout`); time-critical-vs-passive UI principle established; schema v6.
 - **Sprint 5 fix** — audio swap `540061` → `8960`; diagnostic-print discipline extended; sub-toggle state-persistence trap diagnosed.
 - **Sprint 5 fix2** — `Callout.GetStateMismatchNote()`; state-persistence trap pattern named (third instance) and generalized.
-- **Sprint 5b** — pre-encounter tactical reminders module + Magisters' Terrace content; JournalData authoring rules established (source-required, brevity, per-dungeon approval); schema v7. **Current sprint.**
+- **Sprint 5b** — pre-encounter tactical reminders module + Magisters' Terrace content; JournalData authoring rules established (source-required, brevity, per-dungeon approval); schema v7.
+- **Sprint 5b polish** — dual-surface display via `RaidWarningFrame` alongside chat; on-screen header tightened to `Role — Encounter:`; chat retains full `Dungeon (bucket)` header as review log; local-widget-only (never broadcasts). **Current sprint.**

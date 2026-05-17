@@ -37,6 +37,13 @@ read_globals = {
     -- Sprint 5: audio cue for role-callout matches.
     "PlaySound",
 
+    -- Sprint 5b polish: on-screen tactical-reminder display via the existing
+    -- raid-warning widget. Local-only widget write; SendChatMessage is the
+    -- broadcasting counterpart and is never called by this addon.
+    "RaidWarningFrame",
+    "RaidNotice_AddMessage",
+    "ChatTypeInfo",
+
     -- Ace3
     "LibStub",
 
