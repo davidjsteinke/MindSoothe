@@ -16,6 +16,7 @@ PROJECT_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 ADDON_DIR="$PROJECT_ROOT/addon"
 CORPUS_FILE="$PROJECT_ROOT/corpus/sprint2.json"
 CALLOUT_CORPUS_FILE="$PROJECT_ROOT/corpus/sprint5.json"
+REMINDERS_CORPUS_FILE="$PROJECT_ROOT/corpus/sprint5b_gating.lua"
 
 if ! command -v lua >/dev/null 2>&1; then
     echo "Error: 'lua' interpreter not found. Install via: sudo apt-get install lua5.1" >&2
@@ -31,6 +32,12 @@ CORPUS_LUA=$(mktemp --suffix=.lua)
 CALLOUT_CORPUS_LUA=$(mktemp --suffix=.lua)
 HARNESS_LUA=$(mktemp --suffix=.lua)
 trap "rm -f '$CORPUS_LUA' '$CALLOUT_CORPUS_LUA' '$HARNESS_LUA'" EXIT
+
+# Sprint 5b gating tests are pure Lua, no Python conversion needed. The path is
+# passed directly to the harness; an empty/missing file is acceptable.
+if [[ ! -f "$REMINDERS_CORPUS_FILE" ]]; then
+    REMINDERS_CORPUS_FILE=""
+fi
 
 python3 - "$CORPUS_FILE" "$CORPUS_LUA" <<'PY'
 import json, sys
@@ -104,9 +111,10 @@ cat > "$HARNESS_LUA" <<'LUA'
 -- passes. Single source of truth for engine logic; Python only converts JSON
 -- to Lua tables.
 
-local addon_dir          = arg[1]
-local corpus_file        = arg[2]
-local callout_corpus_file = arg[3]
+local addon_dir            = arg[1]
+local corpus_file          = arg[2]
+local callout_corpus_file  = arg[3]
+local reminders_corpus_file = arg[4]
 
 -- WoW-API stub: bit library (only bxor needed for FNV-1a), nothing else.
 _G.bit = {
@@ -144,13 +152,23 @@ load_module("Classifier.lua")
 load_module("Rewrite.lua")
 load_module("RuleEngine.lua")
 load_module("Callout.lua")
+load_module("JournalData.lua")
+load_module("TacticReminders.lua")
 
--- Database stub for Callout.matchesUser. The harness sets currentRole per
--- entry; Callout consults ns.Database:Get() (must return non-nil) and
--- ns.Database:GetEffectiveRole() to decide match.
+-- Database stub: a mutable singleton table so TacticReminders' writes to
+-- tactic_reminders_seen are observable across calls. Fields are seeded with
+-- the same defaults DEFAULTS would supply for a fresh install at v7.
 local stubbedRole = nil
+local stubDB = {
+    callout_enabled = true,
+    callout_ui      = true,
+    callout_sound   = true,
+    tactic_reminders_enabled = false,
+    tactic_reminders_seen    = {},
+    debug_enabled = false,
+}
 ns.Database = {
-    Get = function() return { callout_enabled = true, callout_ui = true, callout_sound = true } end,
+    Get = function() return stubDB end,
     GetEffectiveRole = function() return stubbedRole end,
 }
 
@@ -364,6 +382,133 @@ local mat_pct = (cl_stats.match_total > 0)
     and (100.0 * cl_stats.match_correct / cl_stats.match_total) or 0.0
 print(string.format("Role-match:        %d / %d (%.1f%%)",
     cl_stats.match_correct, cl_stats.match_total, mat_pct))
+
+-- ===== Sprint 5b pass: TacticReminders gating + Lookup =====
+
+if not reminders_corpus_file or reminders_corpus_file == "" then
+    print()
+    print("=== Sprint 5b reminders corpus: none found, skipping ===")
+    return
+end
+
+local rok, rcorpus = pcall(dofile, reminders_corpus_file)
+if not rok or not rcorpus or not rcorpus.scenarios then
+    print()
+    print("=== Sprint 5b reminders corpus: failed to load, skipping ===")
+    return
+end
+
+-- Seed JournalData with fixture instances. Production JournalData ships with
+-- an empty instances table at scaffold time; tests own their fixture.
+ns.JournalData.instances = rcorpus.fixtures.instances
+
+-- Capture print emissions during a Surface call. We patch _G.print to push
+-- lines into a buffer, then restore.
+local original_print = print
+local capture_buffer = nil
+local function startCapture()
+    capture_buffer = {}
+    _G.print = function(...)
+        local parts = {}
+        for i = 1, select("#", ...) do parts[#parts + 1] = tostring(select(i, ...)) end
+        capture_buffer[#capture_buffer + 1] = table.concat(parts, "\t")
+    end
+end
+local function stopCapture()
+    _G.print = original_print
+    local out = capture_buffer
+    capture_buffer = nil
+    return out or {}
+end
+
+local function countBulletLines(lines)
+    local n = 0
+    for i = 1, #lines do
+        if lines[i]:find("^%[ToxFilter%]%s+%- ") then n = n + 1 end
+    end
+    return n
+end
+
+local function hasHeaderLine(lines)
+    for i = 1, #lines do
+        -- Header line example:
+        --   [ToxFilter] First Boss (heroic) — Tank reminders:
+        if lines[i]:find("reminders:$") then return true end
+    end
+    return false
+end
+
+local function applySetup(setup)
+    if setup.master ~= nil then stubDB.tactic_reminders_enabled = setup.master end
+    stubbedRole = setup.role
+    if setup.reset_seen then ns.TacticReminders.ResetSession() end
+    if setup.pre_calls then
+        startCapture()
+        for _, pc in ipairs(setup.pre_calls) do
+            ns.TacticReminders.Surface(pc.instance, pc.encounter, pc.bucket)
+        end
+        stopCapture()
+    end
+end
+
+local rs_total, rs_pass, rs_fail = 0, 0, 0
+local rs_failures = {}
+
+for _, sc in ipairs(rcorpus.scenarios) do
+    rs_total = rs_total + 1
+    applySetup(sc.setup)
+
+    startCapture()
+    ns.TacticReminders.Surface(sc.call.instance, sc.call.encounter, sc.call.bucket)
+    local lines = stopCapture()
+
+    local emitted_header = hasHeaderLine(lines)
+    local mechanic_count = countBulletLines(lines)
+    local emitted = emitted_header or mechanic_count > 0
+
+    -- Seen-map state for this triple after the call.
+    local seen_key = tostring(sc.call.instance) .. "|"
+        .. tostring(sc.call.encounter) .. "|"
+        .. tostring(sc.call.bucket)
+    local seen = stubDB.tactic_reminders_seen[seen_key] == true
+
+    local ok = true
+    local reasons = {}
+    if sc.expect.emitted ~= nil and emitted ~= sc.expect.emitted then
+        ok = false
+        reasons[#reasons + 1] = string.format("emitted=%s expected=%s",
+            tostring(emitted), tostring(sc.expect.emitted))
+    end
+    if sc.expect.seen ~= nil and seen ~= sc.expect.seen then
+        ok = false
+        reasons[#reasons + 1] = string.format("seen=%s expected=%s",
+            tostring(seen), tostring(sc.expect.seen))
+    end
+    if sc.expect.mechanic_count ~= nil and mechanic_count ~= sc.expect.mechanic_count then
+        ok = false
+        reasons[#reasons + 1] = string.format("mechanic_count=%d expected=%d",
+            mechanic_count, sc.expect.mechanic_count)
+    end
+
+    if ok then
+        rs_pass = rs_pass + 1
+    else
+        rs_fail = rs_fail + 1
+        rs_failures[#rs_failures + 1] = string.format("  FAIL %s: %s",
+            sc.id, table.concat(reasons, "; "))
+    end
+end
+
+print()
+print("=== ToxFilter Sprint 5b reminders gating ===")
+print(string.format("Scenarios: %d", rs_total))
+local rs_pct = (rs_total > 0) and (100.0 * rs_pass / rs_total) or 0.0
+print(string.format("Pass:      %d / %d (%.1f%%)", rs_pass, rs_total, rs_pct))
+if rs_fail > 0 then
+    print()
+    print("Failures:")
+    for _, l in ipairs(rs_failures) do print(l) end
+end
 LUA
 
-lua "$HARNESS_LUA" "$ADDON_DIR" "$CORPUS_LUA" "$CALLOUT_CORPUS_LUA"
+lua "$HARNESS_LUA" "$ADDON_DIR" "$CORPUS_LUA" "$CALLOUT_CORPUS_LUA" "$REMINDERS_CORPUS_FILE"

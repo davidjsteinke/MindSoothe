@@ -10,7 +10,7 @@
 
 local _, ns = ...
 
-local LATEST_SCHEMA_VERSION = 6
+local LATEST_SCHEMA_VERSION = 7
 
 -- Schema. Anything user-overridable is named here so a fresh install lands at
 -- the latest version already populated. handling[<cat>] left absent on purpose:
@@ -75,6 +75,14 @@ local DEFAULTS = {
         callout_enabled = false,
         callout_ui      = true,
         callout_sound   = true,
+
+        -- Sprint 5b: pre-encounter tactical reminders. Master off by default
+        -- (opt-in, same as positive_ui and callout_enabled). seen-map is
+        -- session-scoped despite db storage: TacticReminders.ResetSession()
+        -- is called from OnInitialize on every /reload so reminders
+        -- re-surface each session.
+        tactic_reminders_enabled = false,
+        tactic_reminders_seen    = {},
 
         session_buffer = {},
         pinned_moments = {},
@@ -163,6 +171,15 @@ local migrations = {
         if g.callout_enabled == nil then g.callout_enabled = false end
         if g.callout_ui      == nil then g.callout_ui      = true  end
         if g.callout_sound   == nil then g.callout_sound   = true  end
+    end,
+    [7] = function(g)
+        -- Sprint 5b: pre-encounter tactical reminders. Master off by default
+        -- (opt-in, same pattern as positive_ui and callout_enabled). The
+        -- seen-map is session-scoped (cleared in OnInitialize); persistence
+        -- in db preserves the shape for a future day-boundary toggle without
+        -- a follow-up migration.
+        if g.tactic_reminders_enabled == nil then g.tactic_reminders_enabled = false end
+        if g.tactic_reminders_seen    == nil then g.tactic_reminders_seen    = {}    end
     end,
 }
 

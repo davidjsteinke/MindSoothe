@@ -2,7 +2,7 @@
 ## Title: ToxFilter
 ## Notes: Role-confidence support — filters incoming group/raid/instance/BG chat. Pre-release working name.
 ## Author: davidjsteinke
-## Version: 0.1.2-sprint5-fix2
+## Version: 0.2.0-sprint5b
 ## SavedVariables: ToxFilterDB
 
 Libs\LibStub\LibStub.lua
@@ -25,6 +25,8 @@ PIIScrub.lua
 Buffer.lua
 PositiveCapture.lua
 Stats.lua
+JournalData.lua
+TacticReminders.lua
 Grounding.lua
 Highlight.lua
 Callout.lua

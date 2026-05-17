@@ -371,6 +371,14 @@ function Commands.list()
         g.callout_enabled and "on" or "off",
         g.callout_ui      and "on" or "off",
         g.callout_sound   and "on" or "off"))
+    local enc_count, seen_count = 0, 0
+    if ns.TacticReminders then
+        local _, ec = ns.TacticReminders.CountEncounters()
+        enc_count  = ec
+        seen_count = ns.TacticReminders.CountSeen()
+    end
+    print(string.format("  reminders:        master %s (%d encounters in journal, %d seen this session)",
+        g.tactic_reminders_enabled and "on" or "off", enc_count, seen_count))
 end
 
 -- ===== Help =====
@@ -391,6 +399,7 @@ local HELP_GROUPS = {
     { "Ritual",    "/tox check [add||remove||list||y||n||cancel] [item]" },
     { "Callout",   "/tox callout || /tox callout on||off"
                 .. " || /tox callout ui on||off || /tox callout sound on||off" },
+    { "Reminders", "/tox reminders || /tox reminders on||off || /tox reminders reset" },
     { "Breathe",   "/tox breathe || /tox breathe cycles <N>"
                 .. " || /tox breathe count <N> || /tox breathe position <x> <y>" },
     { "Ready",     "/tox ready || /tox ready list || /tox ready cancel"
@@ -456,6 +465,11 @@ local HELP_COMMANDS = {
              .. " /tox callout ui on||off — visual amber tint when a callout addresses your role."
              .. " /tox callout sound on||off — audio cue at the same moment."
              .. " Callouts fire during combat too (time-critical).",
+    reminders = "/tox reminders — show current reminders state and journal coverage."
+             .. " /tox reminders on||off toggles pre-encounter tactical reminders (off by default)."
+             .. " /tox reminders reset clears the session's seen-encounter map so reminders re-surface."
+             .. " Reminders fire once per (instance, encounter, difficulty) per session;"
+             .. " the seen-map clears automatically on /reload.",
     breathe   = "/tox breathe — run the box-breathing animation."
              .. " /tox breathe cycles <1-20> sets cycle count (default 4)."
              .. " /tox breathe count <1-20> sets seconds per phase (default 4)."
@@ -497,6 +511,7 @@ function Commands.summary()
         .. " || /tox stats ... || /tox week || /tox star ... || /tox starred"
         .. " || /tox check ... || /tox breathe ... || /tox ready ..."
         .. " || /tox callout ..."
+        .. " || /tox reminders ..."
         .. " || /tox retention ... || /tox list"
         .. " || /tox version || /tox rules || /tox test <msg> || /tox classify <msg>"
         .. " || /tox rewrite <msg> || /tox help")
@@ -1128,6 +1143,49 @@ function Commands.callout(rest)
         .. " || /tox callout ui on||off || /tox callout sound on||off")
 end
 
+-- Sprint 5b: /tox reminders. Master toggle + reset. No-arg form prints state.
+-- Mirrors /tox callout's no-arg behavior (state, not toggle) — the same
+-- distinction the spec called for between /tox positive (no-arg toggles) and
+-- /tox callout (no-arg shows state). Reminders is a master+behavior toggle
+-- with no sub-toggles, so the state line is minimal.
+function Commands.reminders(rest)
+    local g = db(); if not g then return end
+    local sub = rest:match("^(%S*)") or ""
+    sub = sub:lower()
+
+    if sub == "" then
+        local enc_count, seen_count = 0, 0
+        if ns.TacticReminders then
+            local _, ec = ns.TacticReminders.CountEncounters()
+            enc_count  = ec
+            seen_count = ns.TacticReminders.CountSeen()
+        end
+        out("Reminders: master "
+            .. (g.tactic_reminders_enabled and "on" or "off")
+            .. ". " .. enc_count .. " encounters in journal, "
+            .. seen_count .. " seen this session.")
+        return
+    end
+
+    if sub == "on" then
+        g.tactic_reminders_enabled = true
+        out("Reminders enabled.")
+        return
+    end
+    if sub == "off" then
+        g.tactic_reminders_enabled = false
+        out("Reminders disabled.")
+        return
+    end
+    if sub == "reset" then
+        if ns.TacticReminders then ns.TacticReminders.ResetSession() end
+        out("Reminders session reset. Each (encounter, difficulty) will re-surface on next pull.")
+        return
+    end
+
+    out("Usage: /tox reminders || /tox reminders on||off || /tox reminders reset")
+end
+
 function Commands.retention(rest)
     local arg = rest:match("^(%S+)") or ""
     if arg == "" then
@@ -1177,6 +1235,7 @@ local DISPATCH = {
     breathe   = function(rest) Commands.breathe(rest) end,
     ready     = function(rest) Commands.ready(rest)   end,
     callout   = function(rest) Commands.callout(rest) end,
+    reminders = function(rest) Commands.reminders(rest) end,
     debug     = function(rest) if ns.Debug then ns.Debug.dispatch(rest) else
                                    out("Unknown command 'debug'. Try /tox help.") end end,
 }

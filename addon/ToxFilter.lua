@@ -13,7 +13,7 @@
 local _, ns = ...
 
 local ADDON_NAME = "ToxFilter"
-local VERSION = "0.1.2-sprint5-fix2"
+local VERSION = "0.2.0-sprint5b"
 
 local ToxFilter = LibStub("AceAddon-3.0"):NewAddon(
     ADDON_NAME,
@@ -365,6 +365,10 @@ function ToxFilter:OnInitialize()
     if ns.PositiveCapture and ns.Highlight and ns.Highlight.OnPositiveMoment then
         ns.PositiveCapture.subscribe(ns.Highlight.OnPositiveMoment)
     end
+    -- Sprint 5b: tactic_reminders_seen is session-scoped. Clearing in
+    -- OnInitialize (which runs on every /reload) re-arms reminders each
+    -- session despite the db storage of the map.
+    if ns.TacticReminders then ns.TacticReminders.ResetSession() end
 end
 
 function ToxFilter:OnEnable()
@@ -398,8 +402,7 @@ function ToxFilter:OnDisable()
     ChatFrame_RemoveMessageEventFilter(WHISPER_EVENT, chatFilter)
 end
 
-function ToxFilter:OnEncounterStart(_event, _encounterID, _name, difficultyID)
-    setPaused(true)
+function ToxFilter:OnEncounterStart(_event, _encounterID, encounterName, difficultyID)
     local instance, instanceType = instanceInfo()
     if isCountedScope(instanceType) then
         active_instance = instance or active_instance
@@ -408,10 +411,19 @@ function ToxFilter:OnEncounterStart(_event, _encounterID, _name, difficultyID)
         if not mplus_bucket then
             encounter_bucket = bucketForDifficulty(difficultyID)
         end
+        -- Sprint 5b: surface tactical reminders BEFORE setPaused(true).
+        -- TacticReminders.Surface has a defensive isPaused() guard for any
+        -- future caller; the natural path here pre-pause keeps the gate
+        -- consistent with "pre-pull" semantics. effectiveBucket() picks up
+        -- the just-set encounter_bucket / sticky mplus_bucket.
+        if ns.TacticReminders and active_instance and encounterName then
+            ns.TacticReminders.Surface(active_instance, encounterName, effectiveBucket())
+        end
         if ns.Stats and active_instance then
             ns.Stats.OnEncounterStart(active_instance, effectiveBucket())
         end
     end
+    setPaused(true)
 end
 
 function ToxFilter:OnEncounterEnd(_event, _encounterID, _name, _difficultyID, _groupSize, success)
