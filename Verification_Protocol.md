@@ -1,6 +1,6 @@
 # ToxFilter — Verification Protocol
-# Current addon version: 0.0.8-sprint4-fix2
-# Last updated: Sprint 4 fix2 verification
+# Current addon version: 0.2.1-sprint5b-polish
+# Last updated: Sprint 5b polish verification
 
 This is the cumulative test protocol. When in-game verification is needed, steps are
 referenced by section and number (e.g., "run A1-A7, F18, H22-H24").
@@ -32,12 +32,25 @@ IMPORTANT: Run Phase 0 before any verification session to ensure baseline state.
 ```
 /tox channel whisper off
 ```
+```
+/tox callout off
+```
+```
+/tox callout ui on
+```
+```
+/tox callout sound on
+```
+```
+/tox reminders off
+```
 If debug mode was enabled in a prior session:
 ```
 /tox debug disable
 ```
 Expected: no errors. `/tox list` should show all categories at default, channels at
-the states above, master on, state Active.
+the states above, master on, state Active. `/tox callout` should report master off
+with ui and sound on. `/tox reminders` should report master off.
 
 ---
 
@@ -104,13 +117,13 @@ Expected: rsync completes without errors. Files reach WoW AddOns folder.
 ```
 /reload
 ```
-Expected: "[ToxFilter] Loaded — version 0.0.8-sprint4-fix2" in chat. No Lua errors.
+Expected: "[ToxFilter] Loaded — version 0.2.1-sprint5b-polish" in chat. No Lua errors.
 
 ### B2. Version
 ```
 /tox version
 ```
-Expected: 0.0.8-sprint4-fix2
+Expected: 0.2.1-sprint5b-polish
 
 ### B3. Bare /tox
 ```
@@ -667,7 +680,7 @@ Expected: counters cleared. Stats shows empty state.
 ```
 /reload
 ```
-Expected: "[ToxFilter] Loaded — version 0.0.8-sprint4-fix2"
+Expected: "[ToxFilter] Loaded — version 0.2.1-sprint5b-polish"
 
 ### I2. Highlight UI toggle (fix: was stuck on off)
 ```
@@ -829,6 +842,343 @@ Expected: all behave as verified in prior sprints.
 
 ---
 
+## SECTION J — Sprint 5 Role-Aware Callout Prioritization
+
+Time-critical UI: callouts fire DURING combat (contrast with Sprint 4b
+Highlight which pauses). Visual + audio gated by independent sub-toggles.
+Master off by default. Sub-toggles default to on; persist independently
+across /reload.
+
+Several steps require a friend in /instance (or party/raid). When deferred,
+note the step number for the next session.
+
+### J1. Version load
+```
+/reload
+```
+Expected: "[ToxFilter] Loaded — version 0.2.1-sprint5b-polish".
+
+### J2. Callout state — baseline
+```
+/tox callout
+```
+Expected: "Callout: master off, ui on, sound on." No mismatch note
+(master is off).
+
+### J3. Master on
+```
+/tox callout on
+```
+Expected: "Callout enabled." No mismatch note (both sub-toggles on).
+
+### J4. Set role
+```
+/tox role tank
+```
+Expected: "Role set to 'tank'." Locks role for J5-J7.
+
+### J5. Matching callout (requires friend in /instance)
+Friend sends `tank cooldowns` in /instance.
+Expected: chat line displays with warm-amber tint (|cFFEEBB55). Single
+audio cue plays (READY_CHECK, sound 8960).
+
+### J6. Non-matching callout (requires friend)
+Friend sends `healer cooldowns` in /instance.
+Expected: line displays unchanged. No tint. No sound.
+
+### J7. Sound off (requires friend)
+```
+/tox callout sound off
+```
+Friend sends `tank cooldowns`.
+Expected: tint still applied. No audio.
+
+### J8. Ui off (requires friend)
+```
+/tox callout ui off
+```
+Friend sends `tank cooldowns`.
+Expected: no tint. No audio.
+
+### J9. Restore both
+```
+/tox callout on
+```
+Expected: "Callout enabled." Mismatch note appears (both sub-toggles
+still off).
+```
+/tox callout ui on
+/tox callout sound on
+```
+Friend sends `tank cooldowns`.
+Expected: tint + audio restored.
+
+### J10. Master off (requires friend)
+```
+/tox callout off
+```
+Friend sends `tank cooldowns`.
+Expected: no tint. No audio.
+
+### J11. Co-occurrence — callout preempts positive (requires friend)
+```
+/tox callout on
+/tox positive ui on
+```
+Friend sends `thanks tank, watch your cooldowns`.
+Expected: warm-amber tint (callout color preempts positive green).
+Audio plays once.
+
+### J12. Combat-active (requires boss encounter + friend)
+Enter a boss encounter. While paused, friend sends `tank cooldowns`
+in /instance.
+Expected: tint + audio still fire. Confirms time-critical UI does not
+pause (architectural distinction from Sprint 4b Highlight).
+
+### J13. Audio character check (requires friend)
+Friend sends `tank cooldowns`. Listen.
+Expected: the cue (READY_CHECK, sound 8960) is distinguishable from
+other common WoW events in your sound mix. If it collides, log it for
+a future sound swap.
+
+### J14. Multi-role detection (requires friend)
+Friend sends `tank and healer cooldowns`.
+With `/tox role tank` → tint + audio fire.
+With `/tox role healer` → tint + audio fire.
+
+### J15. Negative detection — these must NOT fire (requires friend)
+Have friend send each line in /instance. Expected: no tint, no audio
+for any of these.
+- `thanks tank`
+- `you trash tank`
+- `good job tank`
+- `i'm the tank`
+- `tank died`
+- `great pull tank`
+
+### J16. Role auto-detect
+```
+/tox role auto
+```
+Expected: "Role set to auto-detect." Friend sends a callout matching
+the player's actual spec role → tint + audio fire.
+
+### J17. Sprint 4a regression
+```
+/tox positive
+/tox lift
+/tox stats
+```
+Expected: all three return their expected output, unaffected by
+Sprint 5 additions.
+
+### J18. Sprint 4b regression (requires friend)
+```
+/tox positive ui on
+/tox callout off
+```
+Friend sends `thanks tank` in /instance.
+Expected: green positive tint (Sprint 4b Highlight, not callout).
+
+### J19. Sprint 2 regression
+```
+move out of fire you trash tank
+```
+in /instance.
+Expected: "[ToxEdit] move out of fire" — role attack still routes
+through classifier and surgical rewrite.
+
+### J20. Corpus harness
+```bash
+./scripts/run-corpus.sh
+```
+Expected: Sprint 2 100%, Sprint 5 100%, Sprint 5b 12/12.
+
+---
+
+## SECTION J fix2 — Callout State-Mismatch Note
+
+Verifies `Callout.GetStateMismatchNote()` surfaces at three call sites:
+`/tox callout on` confirmation, `/tox callout` no-arg status, and
+ToxFilter:OnEnable (after the version print on /reload). No note on
+explicit disables or when master is off.
+
+### J21. Note on /tox callout on
+From baseline, run:
+```
+/tox callout sound off
+/tox callout on
+```
+Expected: "Callout enabled." followed by mismatch note: "Note: audio
+cue is off. Run /tox callout sound on to enable."
+
+### J22. Combined note on no-arg status
+```
+/tox callout ui off
+/tox callout
+```
+Expected: state line plus combined note: "Note: visual tint and audio
+cue are off. Run /tox callout ui on or /tox callout sound on to
+enable."
+
+### J23. Note on /reload with mismatch state
+With the J22 state (master on, ui off, sound off):
+```
+/reload
+```
+Expected: load line followed by the combined mismatch note (same text
+as J22).
+
+### J24. No note on explicit disable
+```
+/tox callout on
+/tox callout ui on
+/tox callout sound on
+/tox callout ui off
+```
+Expected: "Callout visual disabled." No mismatch note on this command
+itself (the disable was deliberate).
+
+### J25. No note when master off
+```
+/tox callout off
+```
+Expected: "Callout disabled." No mismatch note (master off
+short-circuits the note logic).
+
+### J26. No note on /reload with master off
+Run Phase 0 (master off, ui on, sound on).
+```
+/reload
+```
+Expected: load line, no mismatch note.
+
+---
+
+## SECTION K — Sprint 5b Boss Tactic Reminders
+
+Pre-encounter, role-filtered reminders from JournalData. Surfaces at
+ENCOUNTER_START before setPaused(true). Dual-surface: chat block (full
+header `Encounter (bucket) — Role reminders:` plus bulleted lines) AND
+on-screen via RaidWarningFrame (tighter header `Role — Encounter:` plus
+one line per mechanic). No audio. Local-widget only; never broadcasts.
+First-attempt-only per session.
+
+Several steps require entering a dungeon currently covered by
+JournalData. As of this writing: Magisters' Terrace only. Other
+dungeons fall under K10 (silent for uncovered content).
+
+### K1. Version load
+```
+/reload
+```
+Expected: "[ToxFilter] Loaded — version 0.2.1-sprint5b-polish".
+
+### K2. Reminders state — baseline
+```
+/tox reminders
+```
+Expected: "Reminders: master off. N encounters in journal, 0 seen
+this session." N reflects current JournalData coverage.
+
+### K3. Master on
+```
+/tox reminders on
+```
+Expected: "Reminders enabled."
+
+### K4. First-attempt reminder (requires Magisters' Terrace pull)
+Enter Magisters' Terrace, pull a boss (e.g., Arcanotron Custos).
+Expected: BOTH surfaces fire pre-pause:
+- Chat block: "[ToxFilter] Arcanotron Custos (<bucket>) — <Role>
+  reminders:" followed by bulleted lines ("[ToxFilter]   - …").
+- RaidWarningFrame: tighter header "<Role> — Arcanotron Custos:"
+  then one line per mechanic.
+No audio cue. Filter then pauses ("[ToxFilter] Filtering paused —
+combat window.").
+
+### K5. Wipe + re-pull same boss
+Wipe; re-pull the same boss.
+Expected: no chat block, no RaidWarningFrame post (first-attempt-only
+per session per (instance, encounter, bucket) triple).
+
+### K6. Different encounter same key
+Pull the next boss in the same key.
+Expected: reminder block surfaces (per-encounter, not per-instance).
+
+### K7. Session reset
+```
+/tox reminders reset
+```
+Expected: "Reminders session reset. Each (encounter, difficulty) will
+re-surface on next pull."
+
+### K8. Re-pull after reset
+Re-pull any boss already pulled this session.
+Expected: reminder block surfaces again (reset rearmed the seen-map).
+
+### K9. /reload clears seen map
+Pull a boss (so it is seen this session).
+```
+/reload
+```
+Pull the same boss again.
+Expected: reminder block surfaces. OnInitialize clears
+tactic_reminders_seen on every /reload; storage in db is session-scoped
+despite the persistence.
+
+### K10. Instance not in JournalData
+Enter an instance without JournalData coverage (e.g., a non-Midnight
+raid or any of the seven not-yet-authored dungeons). Pull a boss.
+Expected: silent — no chat block, no RaidWarningFrame post.
+
+### K11. Role auto-detect
+```
+/tox role auto
+```
+Pull a Magisters' Terrace boss.
+Expected: surfaced reminders match the player's resolved spec role.
+
+### K12. Manual role override
+```
+/tox role tank
+```
+Pull a boss for which JournalData has a distinct healer block.
+Expected: surfaced reminders are the tank block (override is honored
+over auto-detect for reminder selection).
+
+### K13. Master off
+```
+/tox reminders off
+```
+Pull a boss.
+Expected: no reminder on either surface.
+
+### K14. Sprint 5 callout regression (requires friend in encounter)
+```
+/tox callout on
+/tox reminders off
+```
+Enter a boss encounter. Friend sends `tank cooldowns` mid-fight.
+Expected: tint + audio still fire (Sprint 5 callout unaffected by
+Sprint 5b additions).
+
+### K15. Sprint 4a regression
+```
+/tox positive
+/tox stats
+```
+Expected: both return expected output, unaffected by Sprint 5b
+additions.
+
+### K16. Corpus harness
+```bash
+./scripts/run-corpus.sh
+```
+Expected: Sprint 5b gating 12/12.
+
+---
+
 ## COMMON VERIFICATION RECIPES
 
 Reference these by name when a sprint specifies what to run.
@@ -841,9 +1191,12 @@ Reference these by name when a sprint specifies what to run.
 - **Sprint 4a full:** H1-H21 — affirmative features slash surfacing
 - **Sprint 4b full:** I1-I19 — visual UI and orchestration
 - **Sprint 4 combined:** H1-H21, I1-I19
-- **Fix sprint items:** F3-F5, F9, F14, F18-F18b, H1b, H22-H24, I2, I7 (cycle), I9 (combat), I12, I16-I16b
+- **Sprint 5 full:** J1-J20 — callout detection, visual/audio prioritization
+- **Sprint 5 fix2 items:** J21-J26 — state-mismatch note at three call sites
+- **Sprint 5b full:** K1-K16 — pre-encounter tactical reminders (dual-surface)
+- **Fix sprint items:** F3-F5, F9, F14, F18-F18b, H1b, H22-H24, I2, I7 (cycle), I9 (combat), I12, I16-I16b, J21-J26
 - **Full regression:** Phase 0, A1-A7, B1-B5, C1-C5, D1-D10, E1-E5, F1-F22,
-  G1-G4, H1-H24, I1-I19
+  G1-G4, H1-H24, I1-I19, J1-J26, K1-K16
 
 ---
 
@@ -859,22 +1212,42 @@ Reference these by name when a sprint specifies what to run.
 - Sprint 4 fix (0.0.7): F3-F5, F9, F14, F18-F18b, H1b, H22-H24, I9 (partial), I16
 - Sprint 4 fix2 (0.0.8): F18 (re-fix), H3b, I2, I7 (cycle indicator), I9 (entry
   gate), I12 (re-verify), I16b (/tox ready cancel), Phase 0 (new)
+- Sprint 5 (0.1.0 / 0.1.1-sprint5-fix): J1-J20. Sound swap 540061→8960, six
+  debug-gated diagnostic prints across chatFilter / Callout, multi-fire
+  negative corpus case.
+- Sprint 5 fix2 (0.1.2-sprint5-fix2): J21-J26 (Callout.GetStateMismatchNote
+  at three call sites: /tox callout on, /tox callout no-arg, OnEnable).
+- Sprint 5b (0.2.0-sprint5b): K1-K16 (TacticReminders module, Magisters'
+  Terrace content, schema v7, /tox reminders commands).
+- Sprint 5b polish (0.2.1-sprint5b-polish): K4 (RaidWarningFrame dual-surface
+  display alongside chat; local-widget only, never broadcasts).
 
 ---
 
 ## KNOWN ISSUES / PENDING VERIFICATION
 
-As of version 0.0.8-sprint4-fix2:
+As of version 0.2.1-sprint5b-polish:
 
-- H3b (thanks <name> capture): "thanks manehealer" and "thanks manehealer-thrall"
-  appeared in positive moments but generic "thanks <name>" not yet confirmed.
-  Retest required. May be correct — screenshot showed "thanks tank" captured but
-  direct-name variant not verified.
-- I12 (/tox check y/n inside /tox ready): no code-side bug found. Re-verify after
-  I16 fix. If still broken, next step is temporary logging in Grounding.Respond.
-- I3-I6 (highlight visual): requires friend in instance + combat encounter.
-  Deferred to Phase 6 session.
-- G1-G4 (pause/resume): pause and resume messages confirmed. Status and fixture
-  pass-through during pause not yet verified.
-- F19-F20 (whisper with friend): deferred.
-- H20 (/tox lift during pause): deferred (requires boss encounter).
+- F19-F20 (whisper with friend): deferred (requires friend).
+- H3b (thanks <name> capture, generic form): retest required (requires friend).
+  Earlier sessions captured "thanks manehealer" and "thanks manehealer-thrall"
+  but the bare "thanks <name>" variant remains unconfirmed.
+- I3-I6 (highlight visual): partly confirmed during Sprint 5 testing; the
+  full combat-pause path (I5/I6) deferred (requires friend in encounter).
+- I12 (/tox check y/n inside /tox ready): no code-side bug found. Re-verify
+  next time the chain is exercised end-to-end.
+- J5-J11 (callout with friend): confirmed working during Sprint 5 in-game
+  verification.
+- J12 (combat-active callout): confirmed during Sprint 5 in-game
+  verification. Re-run when a fresh combat session is available.
+- J15 (negative cases with friend): the multi-fire negative case
+  `healer needs to heal` is locked into the Sprint 5 corpus; the remaining
+  J15 phrasings need in-game re-verification with a friend each fresh
+  session.
+- K4-K9 (reminders dual-surface in JournalData-covered dungeons):
+  Magisters' Terrace confirmed during Sprint 5b polish testing. Remaining
+  seven dungeons pending content authoring (per CLAUDE.md sprint plan).
+- K10 (instance not in JournalData): confirmed silent.
+- H20 (/tox lift during pause): confirmed working in Sprint 5b testing.
+- H25 (open-world scope check): confirmed clean during Sprint 4 fix
+  testing.
