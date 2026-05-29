@@ -80,7 +80,7 @@ Version `0.2.1-sprint5b-polish`. Schema v7. Pre-encounter tactical reminders mod
 4. **Role-split preferred when mechanics differ across roles.** The addon only renders on the user's screen, so role-flavored reminders never leak to other roles. Clarity for the surfaced role beats compactness across roles. Universal mechanics: role-duplication is fine.
 5. **Per-dungeon approval workflow.** Propose planned reminders in chat per dungeon; wait for explicit lock before writing to `addon/JournalData.lua`. One dungeon at a time. Never bulk-propose.
 
-**Current JournalData coverage:** Magisters' Terrace locked. Remaining: Maisara Caverns, Nexus-Point Xenas, Windrunner Spire, Pit of Saron, Skyreach, Algeth'ar Academy, Seat of the Triumvirate.
+**Current JournalData coverage:** All eight dungeons locked — Magisters' Terrace, Maisara Caverns, Nexus-Point Xenas, Windrunner Spire, Algeth'ar Academy, Seat of the Triumvirate, Skyreach, Pit of Saron. `JOURNAL_DATA_VERSION = 8`. In-game verification still pending (not all zones tested for bugs yet).
 
 ## Load-bearing decisions (don't regress)
 
@@ -181,7 +181,7 @@ Blizzard's Midnight expansion restricts addon code execution during boss encount
 
 Shipped-sprint detail lives in `CLAUDE_ARCHIVE.md`. Future work:
 
-- **Sprint 5b in progress:** content for remaining 7 dungeons (Maisara Caverns, Nexus-Point Xenas, Windrunner Spire, Pit of Saron, Skyreach, Algeth'ar Academy, Seat of the Triumvirate). One dungeon per source-and-approval cycle.
+- **Sprint 5b content:** complete — all eight dungeons locked. In-game verification still pending (not all zones tested for bugs yet).
 - **Build 1 Sprint 6:** PII scrub audit (Sprint 4a's conservative scrubber is intentionally minimal; Sprint 6 expands).
 - **Build 1 Sprint 7:** corpus expansion + threshold-gate enforcement. Locked targets: slur ≥98%, role_attack ≥90%, harm_invocation ≥95%, identity_attack ≥90%, harassment ≥70%, general_hostility ≥60%, rewrite correctness ≥90%. Tuning pass: under-absorbed neutrals at attack-span edges; spec-name attack detection; absorption-list expansion.
 - **Build 1 Sprint 8:** CurseForge distribution pipeline. `METADATA.JOURNAL_DATA_VERSION` enables content-only updates.
