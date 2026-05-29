@@ -13,7 +13,7 @@
 local _, ns = ...
 
 local ADDON_NAME = "ToxFilter"
-local VERSION = "0.2.1-sprint5b-polish"
+local VERSION = "0.2.2-sprint5b-fix"
 
 local ToxFilter = LibStub("AceAddon-3.0"):NewAddon(
     ADDON_NAME,

@@ -62,6 +62,23 @@ local function userNameLower()
     return n:lower()
 end
 
+-- Sprint 5b fix: connected-realm Tab-completion expands "<your-name>" into
+-- "<your-name>-<realm>" on the wire, and Normalize keeps hyphens intact (they
+-- aren't in PUNCT_SET because hashing relies on the raw token shape). userL is
+-- pre-stripped; the incoming token must be stripped at the comparison site for
+-- the match to succeed. Strip-then-compare is local to thanks_user — classifier
+-- and rule paths continue to see the full token.
+local function stripRealmSuffix(token)
+    if not token then return token end
+    return token:match("^([^-]+)") or token
+end
+
+local function dbg(fmt, ...)
+    local g = ns.Database and ns.Database:Get() or nil
+    if not g or not g.debug_enabled then return end
+    print("[ToxFilter Debug] " .. fmt:format(...))
+end
+
 local function userRole()
     if not (ns.Database and ns.Database.GetEffectiveRole) then return nil end
     return ns.Database:GetEffectiveRole()
@@ -103,10 +120,17 @@ local function detect(normalized_tokens, signals)
             local nxt = normalized_tokens[i + 1]
             if roleTargetMatches(nxt) then
                 local direct = roleTargetMatchesUser(nxt, role)
+                dbg("PositiveCapture.detect: thanks_role nxt=%q role=%s direct=%s",
+                    nxt, tostring(role), tostring(direct))
                 return { pattern = "thanks_role", direct = direct }
             end
-            if userL and nxt == userL then
-                return { pattern = "thanks_user", direct = true }
+            if userL then
+                local nxt_short = stripRealmSuffix(nxt)
+                dbg("PositiveCapture.detect: thanks_user check nxt=%q nxt_short=%q userL=%q match=%s",
+                    nxt, nxt_short, userL, tostring(nxt_short == userL))
+                if nxt_short == userL then
+                    return { pattern = "thanks_user", direct = true }
+                end
             end
         end
     end
@@ -160,13 +184,23 @@ end
 local function capture(msg, classifier_result, event)
     if type(msg) ~= "string" or msg == "" then return nil end
     if not classifier_result or not classifier_result.normalized_tokens then return nil end
-    if whisperOptOut(event) then return nil end
+    if whisperOptOut(event) then
+        dbg("PositiveCapture.capture: whisper opt-out, skipping (event=%s)", tostring(event))
+        return nil
+    end
+
+    dbg("PositiveCapture.capture entry: msg=%q event=%s tokens=%d",
+        msg, tostring(event), #classifier_result.normalized_tokens)
 
     local match = detect(classifier_result.normalized_tokens, classifier_result.signals)
-    if not match then return nil end
+    if not match then
+        dbg("PositiveCapture.capture: detect returned nil — no moment recorded")
+        return nil
+    end
 
     if not (ns.Buffer and ns.Buffer.RecordPositiveMoment) then return nil end
     local moment = ns.Buffer:RecordPositiveMoment(msg, { pattern = match.pattern }, match.direct)
+    dbg("PositiveCapture.capture: recorded pattern=%s direct=%s", match.pattern, tostring(match.direct))
     if moment then notify(moment) end
     return moment
 end
