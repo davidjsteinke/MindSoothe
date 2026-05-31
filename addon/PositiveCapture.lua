@@ -181,7 +181,7 @@ local function whisperOptOut(event)
     return g.channels.whisper == false
 end
 
-local function capture(msg, classifier_result, event)
+local function capture(msg, classifier_result, event, sender)
     if type(msg) ~= "string" or msg == "" then return nil end
     if not classifier_result or not classifier_result.normalized_tokens then return nil end
     -- Sprint 5d: positive capture is an Uplifter feature. Category (or the addon
@@ -206,7 +206,9 @@ local function capture(msg, classifier_result, event)
     end
 
     if not (ns.Buffer and ns.Buffer.RecordPositiveMoment) then return nil end
-    local moment = ns.Buffer:RecordPositiveMoment(msg, { pattern = match.pattern }, match.direct)
+    -- Sprint 6: sender (CHAT_MSG_* author) flows to the scrubber for best-effort
+    -- name stripping of the stored body.
+    local moment = ns.Buffer:RecordPositiveMoment(msg, { pattern = match.pattern }, match.direct, sender)
     dbg("PositiveCapture.capture: recorded pattern=%s direct=%s", match.pattern, tostring(match.direct))
     if moment then notify(moment) end
     return moment

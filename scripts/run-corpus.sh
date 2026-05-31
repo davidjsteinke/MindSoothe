@@ -19,6 +19,7 @@ CALLOUT_CORPUS_FILE="$PROJECT_ROOT/corpus/sprint5.json"
 REMINDERS_CORPUS_FILE="$PROJECT_ROOT/corpus/sprint5b_gating.lua"
 WARNINGS_CORPUS_FILE="$PROJECT_ROOT/corpus/sprint5c_gating.lua"
 CATEGORY_CORPUS_FILE="$PROJECT_ROOT/corpus/sprint5d_gating.lua"
+SCRUB_CORPUS_FILE="$PROJECT_ROOT/corpus/sprint6_scrub.lua"
 
 if ! command -v lua >/dev/null 2>&1; then
     echo "Error: 'lua' interpreter not found. Install via: sudo apt-get install lua5.1" >&2
@@ -49,6 +50,11 @@ fi
 # Sprint 5d category-gate tests are pure Lua too. Missing file is acceptable.
 if [[ ! -f "$CATEGORY_CORPUS_FILE" ]]; then
     CATEGORY_CORPUS_FILE=""
+fi
+
+# Sprint 6 PIIScrub tests are pure Lua too. Missing file is acceptable.
+if [[ ! -f "$SCRUB_CORPUS_FILE" ]]; then
+    SCRUB_CORPUS_FILE=""
 fi
 
 python3 - "$CORPUS_FILE" "$CORPUS_LUA" <<'PY'
@@ -129,6 +135,7 @@ local callout_corpus_file  = arg[3]
 local reminders_corpus_file = arg[4]
 local warnings_corpus_file  = arg[5]
 local category_corpus_file  = arg[6]
+local scrub_corpus_file     = arg[7]
 
 -- WoW-API stub: bit library (only bxor needed for FNV-1a), nothing else.
 _G.bit = {
@@ -171,6 +178,7 @@ load_module("TacticReminders.lua")
 load_module("PreDungeonData.lua")
 load_module("PreDungeon.lua")
 load_module("Category.lua")
+load_module("PIIScrub.lua")
 
 -- Database stub: a mutable singleton table so TacticReminders' writes to
 -- tactic_reminders_seen are observable across calls. Fields are seeded with
@@ -715,6 +723,61 @@ end
 end
 end
 
+-- ===== Sprint 6 pass: PIIScrub known-name stripping =====
+-- Each fixture stubs UnitName("player") and the AceDB profileKeys roster, then
+-- asserts scrub(input, sender) == expected. Precision-first: most fixtures must
+-- survive intact.
+if scrub_corpus_file and scrub_corpus_file ~= "" then
+local sok, scorpus = pcall(dofile, scrub_corpus_file)
+if not sok or not scorpus or not scorpus.fixtures then
+    print()
+    print("=== Sprint 6 scrub corpus: failed to load, skipping ===")
+else
+
+local function makeProfileKeys(roster)
+    if not roster or #roster == 0 then return nil end
+    local pk = {}
+    for _, name in ipairs(roster) do
+        pk[name .. " - Stormrage"] = "Default"
+    end
+    return pk
+end
+
+local sp_total, sp_pass, sp_fail = 0, 0, 0
+local sp_failures = {}
+for _, fx in ipairs(scorpus.fixtures) do
+    sp_total = sp_total + 1
+    -- Stub the live-name sources the scrubber reads.
+    _G.UnitName = function() return fx.user end
+    _G.ToxFilterDB = { profileKeys = makeProfileKeys(fx.roster) }
+    ns.PIIScrub._resetOwnedCache()
+
+    local actual = ns.PIIScrub.scrub(fx.input, fx.sender)
+    if actual == fx.expected then
+        sp_pass = sp_pass + 1
+    else
+        sp_fail = sp_fail + 1
+        sp_failures[#sp_failures + 1] = string.format(
+            "  FAIL %s: input='%s' sender='%s'\n           expected='%s'\n           actual='%s'",
+            fx.id, fx.input, tostring(fx.sender), fx.expected, tostring(actual))
+    end
+end
+_G.UnitName = nil
+_G.ToxFilterDB = nil
+
+print()
+print("=== ToxFilter Sprint 6 scrub corpus ===")
+print(string.format("Fixtures:  %d", sp_total))
+local sp_pct = (sp_total > 0) and (100.0 * sp_pass / sp_total) or 0.0
+print(string.format("Pass:      %d / %d (%.1f%%)", sp_pass, sp_total, sp_pct))
+if sp_fail > 0 then
+    print()
+    print("Failures:")
+    for _, l in ipairs(sp_failures) do print(l) end
+end
+
+end
+end
 LUA
 
-lua "$HARNESS_LUA" "$ADDON_DIR" "$CORPUS_LUA" "$CALLOUT_CORPUS_LUA" "$REMINDERS_CORPUS_FILE" "$WARNINGS_CORPUS_FILE" "$CATEGORY_CORPUS_FILE"
+lua "$HARNESS_LUA" "$ADDON_DIR" "$CORPUS_LUA" "$CALLOUT_CORPUS_LUA" "$REMINDERS_CORPUS_FILE" "$WARNINGS_CORPUS_FILE" "$CATEGORY_CORPUS_FILE" "$SCRUB_CORPUS_FILE"

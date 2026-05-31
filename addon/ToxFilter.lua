@@ -13,7 +13,7 @@
 local _, ns = ...
 
 local ADDON_NAME = "ToxFilter"
-local VERSION = "0.4.0-sprint5d"
+local VERSION = "0.5.0-sprint6"
 
 local ToxFilter = LibStub("AceAddon-3.0"):NewAddon(
     ADDON_NAME,
@@ -215,7 +215,12 @@ local function chatFilter(_chatFrame, event, msg, ...)
 
     local moment = nil
     if ns.PositiveCapture and result.handling == "pass" then
-        moment = ns.PositiveCapture.capture(msg, result, event)
+        -- Sprint 6: the CHAT_MSG_* author (event arg2, first of ...) is the
+        -- authoritative source for the sender's name; thread it to the scrubber
+        -- so it can strip the sender's name from the stored body. Reading the
+        -- vararg does not consume it — the ... pass-through below is unaffected.
+        local sender = ...
+        moment = ns.PositiveCapture.capture(msg, result, event, sender)
     end
 
     -- Co-occurrence: callout match preempts positive highlight. Sound plays

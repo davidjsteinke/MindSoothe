@@ -10,7 +10,7 @@
 
 local _, ns = ...
 
-local LATEST_SCHEMA_VERSION = 9
+local LATEST_SCHEMA_VERSION = 10
 
 -- Schema. Anything user-overridable is named here so a fresh install lands at
 -- the latest version already populated. handling[<cat>] left absent on purpose:
@@ -105,7 +105,10 @@ local DEFAULTS = {
         session_buffer = {},
         pinned_moments = {},
         stats          = {},
-        feedback_log   = {},
+        -- Sprint 6: feedback_log removed. It was declared here through Sprint 5d
+        -- but never read or written by any module, so AceDB stripped it as
+        -- equal-to-default and it never reached disk. migrations[10] defensively
+        -- clears it from any in-memory db for self-documenting history.
     },
 }
 
@@ -213,6 +216,15 @@ local migrations = {
         -- is invisible to a user who never touches the category toggles.
         if g.category_toxfilter_enabled == nil then g.category_toxfilter_enabled = true end
         if g.category_uplifter_enabled  == nil then g.category_uplifter_enabled  = true end
+    end,
+    [10] = function(g)
+        -- Sprint 6: remove the orphan feedback_log field (declared in DEFAULTS
+        -- through Sprint 5d, never read or written). AceDB stripped it as an
+        -- empty default, so it is absent from every real SavedVariables file;
+        -- this clear is a defensive no-op that documents the removal in history.
+        -- The Sprint 6 PIIScrub broadening is pure live-path logic with no
+        -- stored-shape change, so it needs no migration step.
+        g.feedback_log = nil
     end,
 }
 

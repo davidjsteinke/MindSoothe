@@ -143,9 +143,9 @@ local function debugIncrement(g, instance, bucket, field)
         instance or "?", bucket or "?", field or "?"))
 end
 
-function Buffer:RecordPositiveMoment(text, signals, direct_to_user)
+function Buffer:RecordPositiveMoment(text, signals, direct_to_user, sender)
     local g = db(); if not g then return nil end
-    local scrubbed = ns.PIIScrub and ns.PIIScrub.scrub(text) or text
+    local scrubbed = ns.PIIScrub and ns.PIIScrub.scrub(text, sender) or text
     local id = string.format("pm_%03d", g.session_buffer.next_pm_id)
     g.session_buffer.next_pm_id = g.session_buffer.next_pm_id + 1
     local moment = {
