@@ -13,7 +13,7 @@
 local _, ns = ...
 
 local ADDON_NAME = "ToxFilter"
-local VERSION = "0.3.0-sprint5c"
+local VERSION = "0.4.0-sprint5d"
 
 local ToxFilter = LibStub("AceAddon-3.0"):NewAddon(
     ADDON_NAME,
@@ -155,8 +155,12 @@ local function chatFilter(_chatFrame, event, msg, ...)
     -- Sprint 5 fix diagnostic: detectMatching is inlined as detect + matchesUser
     -- so P2 (detection result) and P3 (match decision + effective role) can be
     -- surfaced separately. The behavior is unchanged — only the visibility is.
+    -- Sprint 5d: callouts are an Uplifter feature. Gating detection here keeps
+    -- callout nil when the category (or the addon master) is off, so both the
+    -- paused and non-paused branches below skip tint+sound with no further check.
     local callout = nil
-    if ns.Callout and result.handling == "pass" and db and db.callout_enabled then
+    if ns.Callout and result.handling == "pass" and db and db.callout_enabled
+        and ns.Category and ns.Category.gate("uplifter") then
         local detection = ns.Callout.detect(msg, result)
         if db.debug_enabled then
             -- P2: detection result. roles list if found, "nil" if not.
@@ -192,7 +196,11 @@ local function chatFilter(_chatFrame, event, msg, ...)
         return false
     end
 
-    if channelEnabled then
+    -- Sprint 5d: rule-engine handling (silent/del/edit) and the flagged-event
+    -- writes it drives are the ToxFilter family. Category off → no chat
+    -- modification; the message passes through unmodified. Channel-off retains
+    -- its existing meaning (Sprint 4 fix2) and is checked alongside.
+    if channelEnabled and ns.Category and ns.Category.gate("toxfilter") then
         if result.handling == "silent" then
             if ns.Buffer and result.category then ns.Buffer:RecordFlaggedEvent(result.category, result.severity) end
             return true
@@ -218,12 +226,18 @@ local function chatFilter(_chatFrame, event, msg, ...)
         if tinted then return false, tinted, ... end
     end
 
-    if channelEnabled and moment and ns.Highlight and ns.Highlight.tintIfEligible then
+    -- Sprint 5d: positive-moment highlight is Uplifter. moment is already nil
+    -- when the category is off (PositiveCapture.capture self-gates), but the
+    -- explicit gate keeps the Uplifter dependency visible at the call site.
+    if channelEnabled and moment and ns.Category and ns.Category.gate("uplifter")
+        and ns.Highlight and ns.Highlight.tintIfEligible then
         local tinted = ns.Highlight.tintIfEligible(msg, moment)
         if tinted then return false, tinted, ... end
     end
 
-    if channelEnabled then
+    -- Sprint 5d: Sprint 0 fixtures perform chat modification, so they ride with
+    -- the ToxFilter category — category off → fixtures inert.
+    if channelEnabled and ns.Category and ns.Category.gate("toxfilter") then
         if msg:find(TRIGGER_SILENT, 1, true) then
             return true
         end

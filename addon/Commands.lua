@@ -71,6 +71,12 @@ function Commands.status()
         return
     end
     out("Active")
+    -- Sprint 5d: surface a category master that is off so the user isn't left
+    -- wondering why a family went quiet. Silent when both are on (default).
+    if ns.Category then
+        if not ns.Category.isEnabled("toxfilter") then out("ToxFilter category: off") end
+        if not ns.Category.isEnabled("uplifter") then out("Uplifter category: off") end
+    end
 end
 
 -- ===== Master toggle =====
@@ -342,6 +348,11 @@ function Commands.list()
     local g = db(); if not g then out("Settings not loaded."); return end
     out("Settings:")
     print(string.format("  master:           %s", g.enabled and "on" or "off"))
+    print("  categories:")
+    print(string.format("    %-12s %s", "toxfilter",
+        ns.Category and ns.Category.isEnabled("toxfilter") and "on" or "off"))
+    print(string.format("    %-12s %s", "uplifter",
+        ns.Category and ns.Category.isEnabled("uplifter") and "on" or "off"))
     if isPaused() then
         print("  state:            paused (combat window)")
     elseif ns.Database:AllCategoriesPass() then
@@ -394,6 +405,7 @@ end
 -- them as color-reset (|r) or other escapes. The user sees a single pipe.
 local HELP_GROUPS = {
     { "Filtering", "/tox on || /tox off || /tox status" },
+    { "Category",  "/tox category || /tox category toxfilter on||off || /tox category uplifter on||off" },
     { "Channels",  "/tox channel <name> on||off || /tox channel list" },
     { "Handling",  "/tox handle <category> <pass||edit||del||silent||default>"
                 .. " || /tox handle all <handling> || /tox handle list" },
@@ -423,7 +435,17 @@ local HELP_COMMANDS = {
     on        = "/tox on — enable filtering globally.",
     off       = "/tox off — disable filtering globally."
              .. " Rule engine still runs for /tox test/classify/rewrite.",
-    status    = "/tox status — Active, Disabled, or Paused (combat window).",
+    status    = "/tox status — Active, Disabled, or Paused (combat window)."
+             .. " Also notes a category master that is off.",
+    category  = "/tox category — show both category master states."
+             .. " /tox category toxfilter on||off gates the chat-hygiene family"
+             .. " (filtering, handling, blacklist, rewrite, test fixtures)."
+             .. " /tox category uplifter on||off gates the confidence family"
+             .. " (capture, highlight, callouts, reminders, warnings, stats surfacing)."
+             .. " Per-feature toggles are preserved across category off then on."
+             .. " User-invoked commands (/tox lift, /tox stats, /tox breathe, etc.)"
+             .. " still work when a category is off; only passive surfacing stops."
+             .. " /tox off remains the addon-wide master above both categories.",
     channel   = "/tox channel <name> on||off — toggle a channel."
              .. " /tox channel list — show all (with master state)."
              .. " Channels: raid, instance, battleground, whisper. 'party' is an"
@@ -526,6 +548,7 @@ function Commands.summary()
         .. " || /tox callout ..."
         .. " || /tox reminders ..."
         .. " || /tox warnings ..."
+        .. " || /tox category ..."
         .. " || /tox retention ... || /tox list"
         .. " || /tox version || /tox rules || /tox test <msg> || /tox classify <msg>"
         .. " || /tox rewrite <msg> || /tox help")
@@ -1239,6 +1262,48 @@ function Commands.warnings(rest)
     out("Usage: /tox warnings || /tox warnings on||off || /tox warnings reset")
 end
 
+-- Sprint 5d: /tox category. Two family master toggles sitting above the
+-- per-feature toggles. No-arg prints both states. These toggles never touch the
+-- per-feature sub-state (positive_ui, callout_*, reminders, warnings, channels,
+-- handling) — turning a category off then on resumes features as they were.
+local CATEGORY_FIELD = {
+    toxfilter = "category_toxfilter_enabled",
+    uplifter  = "category_uplifter_enabled",
+}
+
+function Commands.category(rest)
+    local g = db(); if not g then return end
+    local name, state = rest:match("^(%S*)%s*(%S*)$")
+    name  = (name or ""):lower()
+    state = (state or ""):lower()
+
+    if name == "" then
+        out("Categories:")
+        print(string.format("  %-12s %s", "toxfilter",
+            ns.Category and ns.Category.isEnabled("toxfilter") and "on" or "off"))
+        print(string.format("  %-12s %s", "uplifter",
+            ns.Category and ns.Category.isEnabled("uplifter") and "on" or "off"))
+        return
+    end
+
+    local field = CATEGORY_FIELD[name]
+    if not field then
+        out("Unknown category '" .. name .. "'. Use toxfilter or uplifter.")
+        return
+    end
+    if state == "on" then
+        g[field] = true
+        out(name .. " category enabled.")
+        return
+    end
+    if state == "off" then
+        g[field] = false
+        out(name .. " category disabled.")
+        return
+    end
+    out("Usage: /tox category || /tox category toxfilter on||off || /tox category uplifter on||off")
+end
+
 function Commands.retention(rest)
     local arg = rest:match("^(%S+)") or ""
     if arg == "" then
@@ -1290,6 +1355,7 @@ local DISPATCH = {
     callout   = function(rest) Commands.callout(rest) end,
     reminders = function(rest) Commands.reminders(rest) end,
     warnings  = function(rest) Commands.warnings(rest) end,
+    category  = function(rest) Commands.category(rest) end,
     debug     = function(rest) if ns.Debug then ns.Debug.dispatch(rest) else
                                    out("Unknown command 'debug'. Try /tox help.") end end,
 }

@@ -87,6 +87,14 @@ end
 
 function Stats.OnEncounterStart(instance, bucket)
     local g = db(); if not g then return end
+    -- Sprint 5d: live stats surfacing is an Uplifter feature. Category (or the
+    -- addon master) off → no surfacing. Counting (Buffer:Record*, driven from
+    -- ToxFilter's encounter/death/key-complete handlers) is deliberately NOT
+    -- gated — it keeps running so /tox stats stays gap-free when re-enabled.
+    if not (ns.Category and ns.Category.gate("uplifter")) then
+        if g.debug_enabled then print("[ToxFilter Debug] Stats surfacing: uplifter category off") end
+        return
+    end
     debugStart(g, instance, bucket)
     if g.stats_surface == false then return end
     if not instance or not bucket then return end
@@ -102,6 +110,14 @@ end
 
 function Stats.OnChallengeModeStart(instance, bucket)
     local g = db(); if not g then return end
+    -- Sprint 5d: live stats surfacing is an Uplifter feature. Category (or the
+    -- addon master) off → no surfacing. Counting (Buffer:Record*, driven from
+    -- ToxFilter's encounter/death/key-complete handlers) is deliberately NOT
+    -- gated — it keeps running so /tox stats stays gap-free when re-enabled.
+    if not (ns.Category and ns.Category.gate("uplifter")) then
+        if g.debug_enabled then print("[ToxFilter Debug] Stats surfacing: uplifter category off") end
+        return
+    end
     debugStart(g, instance, bucket)
     if g.stats_surface == false then return end
     if not instance or not bucket then return end

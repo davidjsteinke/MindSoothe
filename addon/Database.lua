@@ -10,7 +10,7 @@
 
 local _, ns = ...
 
-local LATEST_SCHEMA_VERSION = 8
+local LATEST_SCHEMA_VERSION = 9
 
 -- Schema. Anything user-overridable is named here so a fresh install lands at
 -- the latest version already populated. handling[<cat>] left absent on purpose:
@@ -91,6 +91,16 @@ local DEFAULTS = {
         -- each session.
         predungeon_warnings_enabled = false,
         predungeon_warnings_seen    = {},
+
+        -- Sprint 5d: category master toggles. Two families sit beneath the
+        -- addon-wide master (db.enabled). Both default ON at install so a fresh
+        -- user gets every feature their individual toggles enable, no setup
+        -- prompt. The category bit is a separate layer ABOVE the per-feature
+        -- toggles; flipping it never touches positive_ui, callout_*,
+        -- tactic_reminders_enabled, predungeon_warnings_enabled, channels, or
+        -- handling (sub-state preservation — load-bearing for the Sprint 6b GUI).
+        category_toxfilter_enabled = true,
+        category_uplifter_enabled  = true,
 
         session_buffer = {},
         pinned_moments = {},
@@ -196,6 +206,13 @@ local migrations = {
         -- the shape without a follow-up migration.
         if g.predungeon_warnings_enabled == nil then g.predungeon_warnings_enabled = false end
         if g.predungeon_warnings_seen    == nil then g.predungeon_warnings_seen    = {}    end
+    end,
+    [9] = function(g)
+        -- Sprint 5d: category master toggles. Both default ON so existing
+        -- installs keep every feature behaving exactly as pre-5d — the sprint
+        -- is invisible to a user who never touches the category toggles.
+        if g.category_toxfilter_enabled == nil then g.category_toxfilter_enabled = true end
+        if g.category_uplifter_enabled  == nil then g.category_uplifter_enabled  = true end
     end,
 }
 

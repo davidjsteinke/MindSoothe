@@ -21,7 +21,7 @@ User-facing text — slash command output, system messages, errors, README — i
 **Tonal-violation grep (permanent CI hygiene, every sprint).** Before declaring user-facing string changes done, grep the diff for `!`, `great`, `oops`, `sorry` in any string literal printed via `print(` or `out(`. Cheap; running it consistently keeps drift from accumulating. Self-referential matches (the grep documentation itself, pattern-data tables that legitimately contain words like "great") are acceptable.
 
 Current grep target set:
-`addon/Commands.lua addon/PositiveCapture.lua addon/Stats.lua addon/Grounding.lua addon/ToxFilter.lua addon/Database.lua addon/Buffer.lua addon/PIIScrub.lua addon/Highlight.lua addon/Breathing.lua addon/Ready.lua addon/Debug.lua addon/Callout.lua addon/JournalData.lua addon/TacticReminders.lua`
+`addon/Commands.lua addon/PositiveCapture.lua addon/Stats.lua addon/Grounding.lua addon/ToxFilter.lua addon/Database.lua addon/Buffer.lua addon/PIIScrub.lua addon/Highlight.lua addon/Breathing.lua addon/Ready.lua addon/Debug.lua addon/Callout.lua addon/JournalData.lua addon/TacticReminders.lua addon/PreDungeonData.lua addon/PreDungeon.lua addon/Category.lua addon/Options.lua`
 
 ## Repo layout
 
@@ -57,9 +57,14 @@ WSL Ubuntu 24.04 → Windows WoW client.
 7. In-game `/reload` (manual — addon never triggers /reload itself).
 8. Verify per `Verification_Protocol.md` section for the current sprint.
 
-## Current state — Build 1 Sprint 5b polish
+## Current state — Build 1 Sprint 5d
 
-Version `0.2.1-sprint5b-polish`. Schema v7. Pre-encounter tactical reminders module shipped; first dungeon's content (Magisters' Terrace) locked, seven dungeons of source material still pending. Polish iteration moved the primary surface from chat-only to dual-surface (chat + `RaidWarningFrame`) because chat alone was too easy to miss in the brief pre-pull window.
+Version `0.4.0-sprint5d`. Schema v9. Two layered features have shipped since 5b polish:
+
+- **Sprint 5c — pre-dungeon warnings** (`addon/PreDungeon.lua` + `addon/PreDungeonData.lua`): role-filtered Key Interrupts / Key Dispels / Tips surfaced once per Mythic+ key at `CHALLENGE_MODE_START` (before `setPaused(true)`), dual-surface (chat + `RaidWarningFrame`). `PREDUNGEON_DATA_VERSION = 0` — infrastructure only; interrupt/dispel/tip content authoring is pending per the per-dungeon approval workflow. Empty categories (no dispels, no tips) are a first-class state and produce no output (never a bare header). `/tox warnings [on|off|reset]`; default off; seen-map session-scoped (cleared in `OnInitialize`); schema v8.
+- **Sprint 5d — category master toggles** (`addon/Category.lua`): two families — ToxFilter (chat hygiene) and Uplifter (confidence) — gated by `/tox category toxfilter|uplifter on|off`. `Category.gate(name)` folds the addon master (`db.enabled`) and the category bit into one live check, giving a `master → category → per-feature` hierarchy. Both default ON (migration v9). Per-feature sub-state is preserved across category off/on. User-invoked commands bypass the gate; passive surfacing and chat handling respect it. Stats *counting* keeps running when Uplifter is off (only *surfacing* is gated); positive *capture* is gated off. `/tox off` is now a true addon-wide kill — it also stops event-driven Uplifter surfacing that previously ignored it. 26-check gating corpus in `corpus/sprint5d_gating.lua`.
+
+The 5b-polish detail below is retained as historical reference.
 
 **Sprint 5b shape:**
 
@@ -105,6 +110,14 @@ Decisions reached through in-game testing or verification cycles that future spr
 - **Stats surfacing (Sprint 4a):** live encounter/dungeon stat surfacing fires only when reassuring. First-attempt → always surface. Wipe rate ≤ threshold → surface. Wipe rate > threshold → suppress silently. The user is never told their wipe rate is "too high to surface."
 - **Live vs user-invoked:** live filtering and live surfacing respect their toggles; user-invoked (`/tox stats`, `/tox week`) is always honored regardless of toggle.
 
+**Category master toggles (Sprint 5d):**
+
+- **Three-layer gate.** `master (db.enabled) → category (category_<fam>_enabled) → per-feature toggle`. `ns.Category.gate(name)` collapses the top two and is the live gate; `ns.Category.isEnabled(name)` reports the category bit alone (for `/tox status` and `/tox list`). ToxFilter family = rule-engine handling + Sprint 0 fixtures (gated in `chatFilter`). Uplifter family = capture, highlight, callouts, reminders, warnings, stats *surfacing*. Each feature calls `gate` at its existing toggle point (chatFilter call sites for callout/handling/highlight/fixtures; internal self-gate in `PositiveCapture.capture`, `TacticReminders.Surface`, `PreDungeon.Surface`, `Stats.OnEncounterStart`/`OnChallengeModeStart`).
+- **Counting is not gated.** Stats *surfacing* is Uplifter; the underlying `Buffer:Record*` counting (encounter/death/key-complete handlers) keeps running when Uplifter is off so `/tox stats` stays gap-free. Positive-moment *capture*, by contrast, IS gated off — it's a named Uplifter feature, not incidental storage.
+- **Sub-state preservation (locked).** Toggling a category never writes per-feature toggles; resuming a category restores features as they were. Load-bearing for the Sprint 6b GUI.
+- **User-invoked bypass.** `/tox lift`, `/tox stats`, `/tox breathe`, etc. work regardless of category state — extends the Sprint 4a live-vs-user-invoked rule above.
+- **`/tox off` is addon-wide.** Because `gate` includes `db.enabled`, the master now also stops the event-driven Uplifter surfacing (reminders, warnings, stats) that historically ignored it.
+
 **UI primitives:**
 
 - **Highlight two-surface design (Sprint 4b):** sync helper `Highlight.tintIfEligible` is called inline from `chatFilter` for return-value tint. Subscriber `Highlight.OnPositiveMoment` is a no-op observer that preserves the subscriber API for future modules. Don't collapse the two surfaces.
@@ -123,7 +136,7 @@ AceDB preserves explicit non-default writes across `/reload`. Three documented i
 
 Debug-gated prints (gated on `g.debug_enabled`) are permanent infrastructure, not removed after the bug they helped diagnose ships. Current set: counter increments in `Buffer.lua`, encounter-start logging in `Stats.lua`, chatFilter entry + Callout detect/matchesUser results in `ToxFilter.lua`/`Callout.lua`, TacticReminders gating in `TacticReminders.lua`. Zero cost when off.
 
-## chatFilter dispatch order (current — Sprint 5 final)
+## chatFilter dispatch order (current — Sprint 5 final; Sprint 5d category gates layered on)
 
 ```
 1. master toggle off                            -> pass
@@ -139,7 +152,9 @@ Debug-gated prints (gated on `g.debug_enabled`) are permanent infrastructure, no
 9. Non-paused, channel-on: Sprint 0 fixtures
 ```
 
-Sprint 5b's TacticReminders is event-driven (`ENCOUNTER_START`), not chatFilter-routed. It surfaces before `setPaused(true)` in the encounter-start handler, independent of this chain.
+Sprint 5b's TacticReminders is event-driven (`ENCOUNTER_START`), not chatFilter-routed. It surfaces before `setPaused(true)` in the encounter-start handler, independent of this chain. Sprint 5c's PreDungeon is likewise event-driven (`CHALLENGE_MODE_START`, pre-pause).
+
+**Sprint 5d category gates layered on this chain:** the ToxFilter category gate (`Category.gate("toxfilter")`) wraps step 5's handling and step 9's fixtures; the Uplifter gate (`Category.gate("uplifter")`) wraps callout detection (feeding steps 4 and 7), capture (step 6, self-gated inside `PositiveCapture.capture`), and Highlight (step 8). The event-driven Uplifter surfacing (TacticReminders, PreDungeon, Stats) self-gates on `Category.gate("uplifter")` at its entry. `Category.gate` includes `db.enabled`, so `/tox off` short-circuits all of it.
 
 ## Sprint 0 fixtures (still active)
 
@@ -214,4 +229,7 @@ Each entry corresponds to a detailed section in `CLAUDE_ARCHIVE.md`. The archive
 - **Sprint 5 fix** — audio swap `540061` → `8960`; diagnostic-print discipline extended; sub-toggle state-persistence trap diagnosed.
 - **Sprint 5 fix2** — `Callout.GetStateMismatchNote()`; state-persistence trap pattern named (third instance) and generalized.
 - **Sprint 5b** — pre-encounter tactical reminders module + Magisters' Terrace content; JournalData authoring rules established (source-required, brevity, per-dungeon approval); schema v7.
-- **Sprint 5b polish** — dual-surface display via `RaidWarningFrame` alongside chat; on-screen header tightened to `Role — Encounter:`; chat retains full `Dungeon (bucket)` header as review log; local-widget-only (never broadcasts). **Current sprint.**
+- **Sprint 5b polish** — dual-surface display via `RaidWarningFrame` alongside chat; on-screen header tightened to `Role — Encounter:`; chat retains full `Dungeon (bucket)` header as review log; local-widget-only (never broadcasts).
+- **Sprint 5b content** — tactical reminders authored and locked for all eight Midnight Season 1 dungeons; `JOURNAL_DATA_VERSION = 8`.
+- **Sprint 5c** — per-key pre-dungeon warnings (`PreDungeon.lua`/`PreDungeonData.lua`): role-filtered interrupts/dispels/tips at `CHALLENGE_MODE_START`, dual-surface, empty-category-as-first-class; `/tox warnings`; schema v8; infrastructure only (`PREDUNGEON_DATA_VERSION = 0`, content authoring pending).
+- **Sprint 5d** — category master toggles (`Category.lua`): ToxFilter / Uplifter families, `/tox category`, three-layer master→category→feature gate, sub-state preservation, Stats counting ungated while surfacing gated, `/tox off` promoted to addon-wide master; schema v9. **Current sprint.**

@@ -184,6 +184,13 @@ end
 local function capture(msg, classifier_result, event)
     if type(msg) ~= "string" or msg == "" then return nil end
     if not classifier_result or not classifier_result.normalized_tokens then return nil end
+    -- Sprint 5d: positive capture is an Uplifter feature. Category (or the addon
+    -- master) off → no capture. Self-gated here (not just at the chatFilter call
+    -- site) so the corpus harness exercises the suppression directly.
+    if not (ns.Category and ns.Category.gate("uplifter")) then
+        dbg("PositiveCapture.capture: uplifter category off, skipping")
+        return nil
+    end
     if whisperOptOut(event) then
         dbg("PositiveCapture.capture: whisper opt-out, skipping (event=%s)", tostring(event))
         return nil

@@ -18,6 +18,7 @@ CORPUS_FILE="$PROJECT_ROOT/corpus/sprint2.json"
 CALLOUT_CORPUS_FILE="$PROJECT_ROOT/corpus/sprint5.json"
 REMINDERS_CORPUS_FILE="$PROJECT_ROOT/corpus/sprint5b_gating.lua"
 WARNINGS_CORPUS_FILE="$PROJECT_ROOT/corpus/sprint5c_gating.lua"
+CATEGORY_CORPUS_FILE="$PROJECT_ROOT/corpus/sprint5d_gating.lua"
 
 if ! command -v lua >/dev/null 2>&1; then
     echo "Error: 'lua' interpreter not found. Install via: sudo apt-get install lua5.1" >&2
@@ -43,6 +44,11 @@ fi
 # Sprint 5c gating tests are pure Lua too. Missing file is acceptable.
 if [[ ! -f "$WARNINGS_CORPUS_FILE" ]]; then
     WARNINGS_CORPUS_FILE=""
+fi
+
+# Sprint 5d category-gate tests are pure Lua too. Missing file is acceptable.
+if [[ ! -f "$CATEGORY_CORPUS_FILE" ]]; then
+    CATEGORY_CORPUS_FILE=""
 fi
 
 python3 - "$CORPUS_FILE" "$CORPUS_LUA" <<'PY'
@@ -122,6 +128,7 @@ local corpus_file          = arg[2]
 local callout_corpus_file  = arg[3]
 local reminders_corpus_file = arg[4]
 local warnings_corpus_file  = arg[5]
+local category_corpus_file  = arg[6]
 
 -- WoW-API stub: bit library (only bxor needed for FNV-1a), nothing else.
 _G.bit = {
@@ -163,6 +170,7 @@ load_module("JournalData.lua")
 load_module("TacticReminders.lua")
 load_module("PreDungeonData.lua")
 load_module("PreDungeon.lua")
+load_module("Category.lua")
 
 -- Database stub: a mutable singleton table so TacticReminders' writes to
 -- tactic_reminders_seen are observable across calls. Fields are seeded with
@@ -176,6 +184,9 @@ local stubDB = {
     tactic_reminders_seen    = {},
     predungeon_warnings_enabled = false,
     predungeon_warnings_seen    = {},
+    enabled                     = true,
+    category_toxfilter_enabled  = true,
+    category_uplifter_enabled   = true,
     debug_enabled = false,
 }
 ns.Database = {
@@ -620,6 +631,90 @@ if ws_fail > 0 then
     for _, l in ipairs(ws_failures) do print(l) end
 end
 
+-- ===== Sprint 5d pass: category gate + Uplifter suppression =====
+-- Reuses startCapture/stopCapture from the Sprint 5b pass (same chunk scope).
+if not category_corpus_file or category_corpus_file == "" then
+    print()
+    print("=== Sprint 5d category corpus: none found, skipping ===")
+else
+local cdok, ccorpus = pcall(dofile, category_corpus_file)
+if not cdok or not ccorpus then
+    print()
+    print("=== Sprint 5d category corpus: failed to load, skipping ===")
+else
+
+local cs_total, cs_pass, cs_fail = 0, 0, 0
+local cs_failures = {}
+local function expectBool(id, what, got, want)
+    cs_total = cs_total + 1
+    if got == want then
+        cs_pass = cs_pass + 1
+    else
+        cs_fail = cs_fail + 1
+        cs_failures[#cs_failures + 1] = string.format("  FAIL %s/%s: got=%s want=%s",
+            id, what, tostring(got), tostring(want))
+    end
+end
+
+-- gate() truth table: master × toxfilter × uplifter.
+for _, c in ipairs(ccorpus.gate_cases or {}) do
+    stubDB.enabled = c.master
+    stubDB.category_toxfilter_enabled = c.tf
+    stubDB.category_uplifter_enabled  = c.up
+    expectBool(c.id, "gate.toxfilter", ns.Category.gate("toxfilter"), c.exp_tf)
+    expectBool(c.id, "gate.uplifter",  ns.Category.gate("uplifter"),  c.exp_up)
+end
+
+-- isEnabled() reports the category bit only, independent of the master.
+for _, c in ipairs(ccorpus.isenabled_cases or {}) do
+    stubDB.enabled = false
+    stubDB.category_toxfilter_enabled = c.tf
+    stubDB.category_uplifter_enabled  = c.up
+    expectBool(c.id, "isEnabled.toxfilter", ns.Category.isEnabled("toxfilter"), c.exp_tf)
+    expectBool(c.id, "isEnabled.uplifter",  ns.Category.isEnabled("uplifter"),  c.exp_up)
+end
+
+-- Unknown category name is defensively false.
+stubDB.enabled = true
+stubDB.category_toxfilter_enabled = true
+stubDB.category_uplifter_enabled  = true
+expectBool("unknown_name", "gate.bogus", ns.Category.gate("bogus"), false)
+
+-- Behavioral suppression through PreDungeon (an Uplifter feature the harness
+-- loads): emits only when master AND uplifter are on.
+ns.PreDungeonData.instances = ccorpus.predungeon_fixture
+stubDB.predungeon_warnings_enabled = true
+for _, c in ipairs(ccorpus.surface_cases or {}) do
+    stubDB.enabled = c.master
+    stubDB.category_uplifter_enabled = c.up
+    stubDB.category_toxfilter_enabled = true
+    stubbedRole = c.role
+    ns.PreDungeon.ResetSession()
+    startCapture()
+    ns.PreDungeon.Surface("GateDungeon")
+    local lines = stopCapture()
+    expectBool(c.id, "emitted", #lines > 0, c.emitted)
+end
+
+-- Restore stub defaults.
+stubDB.enabled = true
+stubDB.category_toxfilter_enabled = true
+stubDB.category_uplifter_enabled  = true
+
+print()
+print("=== ToxFilter Sprint 5d category gating ===")
+print(string.format("Checks:    %d", cs_total))
+local cs_pct = (cs_total > 0) and (100.0 * cs_pass / cs_total) or 0.0
+print(string.format("Pass:      %d / %d (%.1f%%)", cs_pass, cs_total, cs_pct))
+if cs_fail > 0 then
+    print()
+    print("Failures:")
+    for _, l in ipairs(cs_failures) do print(l) end
+end
+
+end
+end
+
 LUA
 
-lua "$HARNESS_LUA" "$ADDON_DIR" "$CORPUS_LUA" "$CALLOUT_CORPUS_LUA" "$REMINDERS_CORPUS_FILE" "$WARNINGS_CORPUS_FILE"
+lua "$HARNESS_LUA" "$ADDON_DIR" "$CORPUS_LUA" "$CALLOUT_CORPUS_LUA" "$REMINDERS_CORPUS_FILE" "$WARNINGS_CORPUS_FILE" "$CATEGORY_CORPUS_FILE"

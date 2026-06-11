@@ -158,6 +158,13 @@ end
 function PreDungeon.Surface(instance)
     local g = db(); if not g then return end
 
+    -- Sprint 5d: pre-dungeon warnings are an Uplifter feature. Category (or the
+    -- addon master) off → silent. Sits above predungeon_warnings_enabled.
+    if not (ns.Category and ns.Category.gate("uplifter")) then
+        dprint(string.format("PreDungeon.Surface: category_off (instance=%s)", tostring(instance)))
+        return
+    end
+
     if not g.predungeon_warnings_enabled then
         dprint(string.format("PreDungeon.Surface: master_off (instance=%s)", tostring(instance)))
         return

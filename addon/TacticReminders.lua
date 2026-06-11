@@ -139,6 +139,13 @@ end
 function TacticReminders.Surface(instance, encounter, bucket)
     local g = db(); if not g then return end
 
+    -- Sprint 5d: tactic reminders are an Uplifter feature. Category (or the
+    -- addon master) off → silent. Sits above tactic_reminders_enabled.
+    if not (ns.Category and ns.Category.gate("uplifter")) then
+        dprint(string.format("TacticReminders.Surface: category_off (instance=%s)", tostring(instance)))
+        return
+    end
+
     if not g.tactic_reminders_enabled then
         dprint(string.format("TacticReminders.Surface: master_off (instance=%s encounter=%s bucket=%s)",
             tostring(instance), tostring(encounter), tostring(bucket)))
