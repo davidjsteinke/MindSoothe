@@ -399,6 +399,53 @@ function Commands.list()
         g.predungeon_warnings_enabled and "on" or "off", inst_count, w_seen))
 end
 
+-- ===== Sprint 6b: consolidated state readout =====
+
+-- Dense, single-block view of every toggle layer (master, both category masters,
+-- per-feature toggles, channels, role). Companion to the GUI for fast in-combat
+-- text checks. Separators are spaces only — no literal pipes — so the chat-frame
+-- escape parser has nothing to consume (A6 pipe-doubling audit stays clean).
+function Commands.state()
+    local g = db()
+    if not g then out("Settings not loaded."); return end
+    local function onoff(v) return v and "on" or "off" end
+    out("State:")
+    print(string.format("  master      %s    paused %s",
+        onoff(g.enabled), isPaused() and "yes" or "no"))
+    print(string.format("  category    toxfilter %s    uplifter %s",
+        onoff(ns.Category and ns.Category.isEnabled("toxfilter")),
+        onoff(ns.Category and ns.Category.isEnabled("uplifter"))))
+    local overridden = 0
+    for _, cat in ipairs(CATEGORY_ORDER) do
+        if g.handling[cat] then overridden = overridden + 1 end
+    end
+    print(string.format("  toxfilter   handling %d/%d overridden    blacklist %d    whitelist %d",
+        overridden, #CATEGORY_ORDER,
+        ns.UserRules.count("blacklist"), ns.UserRules.count("whitelist")))
+    print(string.format(
+        "  uplifter    positive-ui %s    callout %s (ui %s sound %s)"
+        .. "    reminders %s    warnings %s    stats-surface %s",
+        onoff(g.positive_ui),
+        onoff(g.callout_enabled), onoff(g.callout_ui), onoff(g.callout_sound),
+        onoff(g.tactic_reminders_enabled), onoff(g.predungeon_warnings_enabled),
+        onoff(g.stats_surface)))
+    print(string.format("  channels    raid %s    instance %s    bg %s    whisper %s",
+        onoff(g.channels.raid), onoff(g.channels.instance),
+        onoff(g.channels.battleground), onoff(g.channels.whisper)))
+    local effectiveRole = ns.Database:GetEffectiveRole() or "unknown"
+    print(string.format("  role        %s (effective %s)", g.role, effectiveRole))
+end
+
+-- Opens the AceConfig options panel. The panel is a view over the same db state
+-- these slash commands read and write — no separate GUI state store.
+function Commands.config()
+    if ns.Options and ns.Options.Open then
+        ns.Options.Open()
+    else
+        out("Options panel unavailable: AceConfig libraries not loaded.")
+    end
+end
+
 -- ===== Help =====
 
 -- Pipes are doubled to "||" so WoW's chat-frame escape parser doesn't consume
@@ -426,6 +473,7 @@ local HELP_GROUPS = {
                 .. " || /tox ready include <step> on||off"
                 .. " || /tox ready order <step> <step> <step>" },
     { "Buffer",    "/tox retention <days>" },
+    { "Config",    "/tox config || /tox state" },
     { "Inspect",   "/tox version || /tox rules || /tox list"
                 .. " || /tox test <msg> || /tox classify <msg> || /tox rewrite <msg>" },
     { "Help",      "/tox help || /tox help <command>" },
@@ -465,6 +513,12 @@ local HELP_COMMANDS = {
     whitelist = "/tox whitelist add <word> — exempt a word from rule-engine matching."
              .. " remove / list also supported.",
     list      = "/tox list — comprehensive snapshot of every setting.",
+    state     = "/tox state — dense one-block readout of every toggle layer"
+             .. " (master, both category masters, per-feature toggles, channels, role)."
+             .. " Faster than /tox list for an in-combat check.",
+    config    = "/tox config — open the graphical options panel"
+             .. " (also under Esc, Options, AddOns). The panel is a view over the"
+             .. " same state these slash commands use; changes stay in sync.",
     version   = "/tox version — print the addon version.",
     rules     = "/tox rules — print rule-data version, generation timestamp, counts.",
     test      = "/tox test <message> — show what handling/category the rule engine assigns.",
@@ -549,6 +603,7 @@ function Commands.summary()
         .. " || /tox reminders ..."
         .. " || /tox warnings ..."
         .. " || /tox category ..."
+        .. " || /tox config || /tox state"
         .. " || /tox retention ... || /tox list"
         .. " || /tox version || /tox rules || /tox test <msg> || /tox classify <msg>"
         .. " || /tox rewrite <msg> || /tox help")
@@ -1356,6 +1411,8 @@ local DISPATCH = {
     reminders = function(rest) Commands.reminders(rest) end,
     warnings  = function(rest) Commands.warnings(rest) end,
     category  = function(rest) Commands.category(rest) end,
+    state     = function(_)    Commands.state()     end,
+    config    = function(_)    Commands.config()    end,
     debug     = function(rest) if ns.Debug then ns.Debug.dispatch(rest) else
                                    out("Unknown command 'debug'. Try /tox help.") end end,
 }

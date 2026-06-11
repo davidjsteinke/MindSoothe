@@ -32,7 +32,7 @@ addon/                  WoW addon source — what gets deployed
   Libs/                 Embedded Ace3
   README.md             Pre-release user-facing description
 app/                    Companion app (empty; Build 2)
-corpus/                 Test corpora (sprint2.json, sprint5.json, sprint5b_gating.lua)
+corpus/                 Test corpora (sprint2/sprint5 JSON; 5b/5c/5d gating + sprint6 scrub Lua)
 docs/                   Design docs (empty)
 sensitive/              Slur lists / harassment patterns — gitignored
 scripts/
@@ -50,16 +50,21 @@ WSL Ubuntu 24.04 → Windows WoW client.
 
 1. Edit Lua/TOC in WSL.
 2. `luacheck addon/` from project root — must pass.
-3. `./scripts/run-corpus.sh` — Sprint 2, Sprint 5, Sprint 5b passes all 100%.
+3. `./scripts/run-corpus.sh` — all passes (Sprint 2, 5, 5b, 5c, 5d, 6 scrub) 100%.
 4. Tonal-grep pass on changed files (see Tone section).
 5. Pipe-doubling audit on any new user-facing string (see Conventions).
 6. `./scripts/deploy.sh` — rsyncs `addon/` to AddOns folder.
 7. In-game `/reload` (manual — addon never triggers /reload itself).
 8. Verify per `Verification_Protocol.md` section for the current sprint.
 
-## Current state — Build 1 Sprint 5d
+## Current state — Build 1 Sprint 6b
 
-Version `0.4.0-sprint5d`. Schema v9. Two layered features have shipped since 5b polish:
+Version `0.6.0-sprint6b`. Schema v10. Shipped since 5d:
+
+- **Sprint 6 — PII scrub audit + remediation** (`addon/PIIScrub.lua`): live-path name scrubber broadened from narrow post-thanks Capword matching to known-name matching against the sender (CHAT_MSG_* author, threaded `chatFilter → capture → RecordPositiveMoment → scrub`), the user's current character, and the alt roster from AceDB profileKeys. Case-insensitive, connected-realm-suffix-aware (strips `Name-Realm` whole), position-independent. Precision over recall: only KNOWN names are stripped, never names guessed from token shape; a known name that is also a class/role word or acronym is spared (B1 collision rule) so positive moments stay intact. Orphan `feedback_log` field removed (schema v9 → v10, defensive no-op clear). 18-fixture scrub corpus in `corpus/sprint6_scrub.lua`. Audit findings in `PII_Audit_Sprint6.md`.
+- **Sprint 6b — options panel** (`addon/Options.lua` + embedded AceGUI-3.0/AceConfig-3.0): AceConfig panel registered into the Blizzard AddOns menu from `OnInitialize`. A view over existing db state, never a parallel store — every control's get/set reads and writes the same db fields (or calls the same ns.* methods) the slash commands use. Options table is registered as a function so dynamic list editors (blacklist/whitelist/grounding) and category `disabled()` closures re-evaluate each render. Category greying displays preserved sub-toggle values (Sprint 5d sub-state preservation made visible). `/tox config` opens the panel; `/tox state` is a dense one-block readout of every toggle layer. Accepted 6b limitation: slash-command changes made while the panel is open may display stale until reopen (in-panel changes do call `NotifyChange`).
+
+Sprint 5c/5d detail below is retained as recent reference:
 
 - **Sprint 5c — pre-dungeon warnings** (`addon/PreDungeon.lua` + `addon/PreDungeonData.lua`): role-filtered Key Interrupts / Key Dispels / Tips surfaced once per Mythic+ key at `CHALLENGE_MODE_START` (before `setPaused(true)`), dual-surface (chat + `RaidWarningFrame`). `PREDUNGEON_DATA_VERSION = 0` — infrastructure only; interrupt/dispel/tip content authoring is pending per the per-dungeon approval workflow. Empty categories (no dispels, no tips) are a first-class state and produce no output (never a bare header). `/tox warnings [on|off|reset]`; default off; seen-map session-scoped (cleared in `OnInitialize`); schema v8.
 - **Sprint 5d — category master toggles** (`addon/Category.lua`): two families — ToxFilter (chat hygiene) and Uplifter (confidence) — gated by `/tox category toxfilter|uplifter on|off`. `Category.gate(name)` folds the addon master (`db.enabled`) and the category bit into one live check, giving a `master → category → per-feature` hierarchy. Both default ON (migration v9). Per-feature sub-state is preserved across category off/on. User-invoked commands bypass the gate; passive surfacing and chat handling respect it. Stats *counting* keeps running when Uplifter is off (only *surfacing* is gated); positive *capture* is gated off. `/tox off` is now a true addon-wide kill — it also stops event-driven Uplifter surfacing that previously ignored it. 26-check gating corpus in `corpus/sprint5d_gating.lua`.
@@ -197,10 +202,10 @@ Blizzard's Midnight expansion restricts addon code execution during boss encount
 Shipped-sprint detail lives in `CLAUDE_ARCHIVE.md`. Future work:
 
 - **Sprint 5b content:** complete — all eight dungeons locked. In-game verification still pending (not all zones tested for bugs yet).
-- **Build 1 Sprint 6:** PII scrub audit (Sprint 4a's conservative scrubber is intentionally minimal; Sprint 6 expands).
+- **Sprint 5c content:** pre-dungeon warning data (interrupts/dispels/tips) per the per-dungeon approval workflow; `PREDUNGEON_DATA_VERSION` still 0.
 - **Build 1 Sprint 7:** corpus expansion + threshold-gate enforcement. Locked targets: slur ≥98%, role_attack ≥90%, harm_invocation ≥95%, identity_attack ≥90%, harassment ≥70%, general_hostility ≥60%, rewrite correctness ≥90%. Tuning pass: under-absorbed neutrals at attack-span edges; spec-name attack detection; absorption-list expansion.
 - **Build 1 Sprint 8:** CurseForge distribution pipeline. `METADATA.JOURNAL_DATA_VERSION` enables content-only updates.
-- **Build 1 Sprint 9:** configuration UI.
+- **Build 1 Sprint 9:** configuration UI — shipped early as Sprint 6b's options panel; remaining Sprint 9 scope (if any) to be decided.
 - **Build 2:** companion app — LLM-based recap generation, central rule classification.
 - **Build 3:** central rule service.
 
@@ -232,4 +237,6 @@ Each entry corresponds to a detailed section in `CLAUDE_ARCHIVE.md`. The archive
 - **Sprint 5b polish** — dual-surface display via `RaidWarningFrame` alongside chat; on-screen header tightened to `Role — Encounter:`; chat retains full `Dungeon (bucket)` header as review log; local-widget-only (never broadcasts).
 - **Sprint 5b content** — tactical reminders authored and locked for all eight Midnight Season 1 dungeons; `JOURNAL_DATA_VERSION = 8`.
 - **Sprint 5c** — per-key pre-dungeon warnings (`PreDungeon.lua`/`PreDungeonData.lua`): role-filtered interrupts/dispels/tips at `CHALLENGE_MODE_START`, dual-surface, empty-category-as-first-class; `/tox warnings`; schema v8; infrastructure only (`PREDUNGEON_DATA_VERSION = 0`, content authoring pending).
-- **Sprint 5d** — category master toggles (`Category.lua`): ToxFilter / Uplifter families, `/tox category`, three-layer master→category→feature gate, sub-state preservation, Stats counting ungated while surfacing gated, `/tox off` promoted to addon-wide master; schema v9. **Current sprint.**
+- **Sprint 5d** — category master toggles (`Category.lua`): ToxFilter / Uplifter families, `/tox category`, three-layer master→category→feature gate, sub-state preservation, Stats counting ungated while surfacing gated, `/tox off` promoted to addon-wide master; schema v9.
+- **Sprint 6** — PII scrub audit (`PII_Audit_Sprint6.md`, audit-only commit) + remediation: PIIScrub broadened to known-name matching (sender threading, current character, alt roster; precision over recall; B1 collision rule); orphan `feedback_log` removed; schema v10; 18-fixture scrub corpus.
+- **Sprint 6b** — options panel (`Options.lua` + embedded AceGUI/AceConfig): GUI as a view over db state (no parallel store), function-built options table, category greying with preserved sub-state values, `/tox config` + `/tox state`. **Current sprint.**

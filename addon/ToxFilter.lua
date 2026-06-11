@@ -13,7 +13,7 @@
 local _, ns = ...
 
 local ADDON_NAME = "ToxFilter"
-local VERSION = "0.5.0-sprint6"
+local VERSION = "0.6.0-sprint6b"
 
 local ToxFilter = LibStub("AceAddon-3.0"):NewAddon(
     ADDON_NAME,
@@ -391,6 +391,9 @@ function ToxFilter:OnInitialize()
     -- Sprint 5c: predungeon_warnings_seen is session-scoped, same as the
     -- reminders seen-map. Clear on every /reload to re-arm per-key warnings.
     if ns.PreDungeon then ns.PreDungeon.ResetSession() end
+    -- Sprint 6b: register the AceConfig options panel into the Blizzard AddOns
+    -- menu. Runs after Database:Init so the panel's get/set see a live db.
+    if ns.Options then ns.Options.Register() end
 end
 
 function ToxFilter:OnEnable()
