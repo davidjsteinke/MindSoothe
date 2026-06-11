@@ -13,7 +13,7 @@
 local _, ns = ...
 
 local ADDON_NAME = "ToxFilter"
-local VERSION = "0.2.2-sprint5b-fix"
+local VERSION = "0.3.0-sprint5c"
 
 local ToxFilter = LibStub("AceAddon-3.0"):NewAddon(
     ADDON_NAME,
@@ -369,6 +369,9 @@ function ToxFilter:OnInitialize()
     -- OnInitialize (which runs on every /reload) re-arms reminders each
     -- session despite the db storage of the map.
     if ns.TacticReminders then ns.TacticReminders.ResetSession() end
+    -- Sprint 5c: predungeon_warnings_seen is session-scoped, same as the
+    -- reminders seen-map. Clear on every /reload to re-arm per-key warnings.
+    if ns.PreDungeon then ns.PreDungeon.ResetSession() end
 end
 
 function ToxFilter:OnEnable()
@@ -442,15 +445,23 @@ function ToxFilter:OnEncounterEnd(_event, _encounterID, _name, _difficultyID, _g
 end
 
 function ToxFilter:OnChallengeModeStart()
-    setPaused(true)
+    -- Sprint 5c: surface per-key pre-dungeon warnings BEFORE setPaused(true).
+    -- PreDungeon.Surface has a defensive isPaused() guard for any future
+    -- caller; firing here pre-pause keeps the gate consistent with the
+    -- "during the countdown" semantics and avoids the guard blocking the
+    -- natural path (same trap as Sprint 5b's TacticReminders at ENCOUNTER_START).
     local instance, instanceType = instanceInfo()
     if isCountedScope(instanceType) then
         active_instance = instance or active_instance
         mplus_bucket = captureKeystoneBucket()
+        if ns.PreDungeon and active_instance then
+            ns.PreDungeon.Surface(active_instance)
+        end
         if ns.Stats and active_instance then
             ns.Stats.OnChallengeModeStart(active_instance, mplus_bucket)
         end
     end
+    setPaused(true)
 end
 
 function ToxFilter:OnChallengeModeCompleted()

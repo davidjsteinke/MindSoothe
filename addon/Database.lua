@@ -10,7 +10,7 @@
 
 local _, ns = ...
 
-local LATEST_SCHEMA_VERSION = 7
+local LATEST_SCHEMA_VERSION = 8
 
 -- Schema. Anything user-overridable is named here so a fresh install lands at
 -- the latest version already populated. handling[<cat>] left absent on purpose:
@@ -83,6 +83,14 @@ local DEFAULTS = {
         -- re-surface each session.
         tactic_reminders_enabled = false,
         tactic_reminders_seen    = {},
+
+        -- Sprint 5c: per-key pre-dungeon warnings. Master off by default
+        -- (opt-in, same as positive_ui / callout_enabled / tactic_reminders).
+        -- seen-map is session-scoped despite db storage: PreDungeon.ResetSession()
+        -- is called from OnInitialize on every /reload so warnings re-surface
+        -- each session.
+        predungeon_warnings_enabled = false,
+        predungeon_warnings_seen    = {},
 
         session_buffer = {},
         pinned_moments = {},
@@ -180,6 +188,14 @@ local migrations = {
         -- a follow-up migration.
         if g.tactic_reminders_enabled == nil then g.tactic_reminders_enabled = false end
         if g.tactic_reminders_seen    == nil then g.tactic_reminders_seen    = {}    end
+    end,
+    [8] = function(g)
+        -- Sprint 5c: per-key pre-dungeon warnings. Master off by default
+        -- (opt-in, same pattern as the v6/v7 feature toggles). The seen-map is
+        -- session-scoped (cleared in OnInitialize); persistence in db preserves
+        -- the shape without a follow-up migration.
+        if g.predungeon_warnings_enabled == nil then g.predungeon_warnings_enabled = false end
+        if g.predungeon_warnings_seen    == nil then g.predungeon_warnings_seen    = {}    end
     end,
 }
 

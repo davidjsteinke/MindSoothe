@@ -17,6 +17,7 @@ ADDON_DIR="$PROJECT_ROOT/addon"
 CORPUS_FILE="$PROJECT_ROOT/corpus/sprint2.json"
 CALLOUT_CORPUS_FILE="$PROJECT_ROOT/corpus/sprint5.json"
 REMINDERS_CORPUS_FILE="$PROJECT_ROOT/corpus/sprint5b_gating.lua"
+WARNINGS_CORPUS_FILE="$PROJECT_ROOT/corpus/sprint5c_gating.lua"
 
 if ! command -v lua >/dev/null 2>&1; then
     echo "Error: 'lua' interpreter not found. Install via: sudo apt-get install lua5.1" >&2
@@ -37,6 +38,11 @@ trap "rm -f '$CORPUS_LUA' '$CALLOUT_CORPUS_LUA' '$HARNESS_LUA'" EXIT
 # passed directly to the harness; an empty/missing file is acceptable.
 if [[ ! -f "$REMINDERS_CORPUS_FILE" ]]; then
     REMINDERS_CORPUS_FILE=""
+fi
+
+# Sprint 5c gating tests are pure Lua too. Missing file is acceptable.
+if [[ ! -f "$WARNINGS_CORPUS_FILE" ]]; then
+    WARNINGS_CORPUS_FILE=""
 fi
 
 python3 - "$CORPUS_FILE" "$CORPUS_LUA" <<'PY'
@@ -115,6 +121,7 @@ local addon_dir            = arg[1]
 local corpus_file          = arg[2]
 local callout_corpus_file  = arg[3]
 local reminders_corpus_file = arg[4]
+local warnings_corpus_file  = arg[5]
 
 -- WoW-API stub: bit library (only bxor needed for FNV-1a), nothing else.
 _G.bit = {
@@ -154,6 +161,8 @@ load_module("RuleEngine.lua")
 load_module("Callout.lua")
 load_module("JournalData.lua")
 load_module("TacticReminders.lua")
+load_module("PreDungeonData.lua")
+load_module("PreDungeon.lua")
 
 -- Database stub: a mutable singleton table so TacticReminders' writes to
 -- tactic_reminders_seen are observable across calls. Fields are seeded with
@@ -165,6 +174,8 @@ local stubDB = {
     callout_sound   = true,
     tactic_reminders_enabled = false,
     tactic_reminders_seen    = {},
+    predungeon_warnings_enabled = false,
+    predungeon_warnings_seen    = {},
     debug_enabled = false,
 }
 ns.Database = {
@@ -509,6 +520,106 @@ if rs_fail > 0 then
     print("Failures:")
     for _, l in ipairs(rs_failures) do print(l) end
 end
+
+-- ===== Sprint 5c pass: PreDungeon gating + Lookup =====
+-- Reuses the capture helpers (startCapture/stopCapture/countBulletLines)
+-- defined in the Sprint 5b pass above; they live in the same chunk scope.
+
+if not warnings_corpus_file or warnings_corpus_file == "" then
+    print()
+    print("=== Sprint 5c warnings corpus: none found, skipping ===")
+    return
+end
+
+local wok, wcorpus = pcall(dofile, warnings_corpus_file)
+if not wok or not wcorpus or not wcorpus.scenarios then
+    print()
+    print("=== Sprint 5c warnings corpus: failed to load, skipping ===")
+    return
+end
+
+-- Seed PreDungeonData with fixture instances. Production PreDungeonData ships
+-- with an empty instances table at scaffold time; tests own their fixture.
+ns.PreDungeonData.instances = wcorpus.fixtures.instances
+
+-- PreDungeon header line example:
+--   [ToxFilter] KeyDungeon A — pre-key reminders (DPS):
+local function hasWarningHeader(lines)
+    for i = 1, #lines do
+        if lines[i]:find("pre%-key reminders") then return true end
+    end
+    return false
+end
+
+local function applyWarningSetup(setup)
+    if setup.master ~= nil then stubDB.predungeon_warnings_enabled = setup.master end
+    stubbedRole = setup.role
+    if setup.reset_seen then ns.PreDungeon.ResetSession() end
+    if setup.pre_calls then
+        startCapture()
+        for _, pc in ipairs(setup.pre_calls) do
+            ns.PreDungeon.Surface(pc.instance)
+        end
+        stopCapture()
+    end
+end
+
+local ws_total, ws_pass, ws_fail = 0, 0, 0
+local ws_failures = {}
+
+for _, sc in ipairs(wcorpus.scenarios) do
+    ws_total = ws_total + 1
+    applyWarningSetup(sc.setup)
+
+    startCapture()
+    ns.PreDungeon.Surface(sc.call.instance)
+    local lines = stopCapture()
+
+    local emitted_header = hasWarningHeader(lines)
+    local bullet_count = countBulletLines(lines)
+    local emitted = emitted_header or bullet_count > 0
+
+    -- Seen-map state for this instance after the call (per-instance key).
+    local seen = stubDB.predungeon_warnings_seen[sc.call.instance] == true
+
+    local ok = true
+    local reasons = {}
+    if sc.expect.emitted ~= nil and emitted ~= sc.expect.emitted then
+        ok = false
+        reasons[#reasons + 1] = string.format("emitted=%s expected=%s",
+            tostring(emitted), tostring(sc.expect.emitted))
+    end
+    if sc.expect.seen ~= nil and seen ~= sc.expect.seen then
+        ok = false
+        reasons[#reasons + 1] = string.format("seen=%s expected=%s",
+            tostring(seen), tostring(sc.expect.seen))
+    end
+    if sc.expect.bullet_count ~= nil and bullet_count ~= sc.expect.bullet_count then
+        ok = false
+        reasons[#reasons + 1] = string.format("bullet_count=%d expected=%d",
+            bullet_count, sc.expect.bullet_count)
+    end
+
+    if ok then
+        ws_pass = ws_pass + 1
+    else
+        ws_fail = ws_fail + 1
+        ws_failures[#ws_failures + 1] = string.format("  FAIL %s: %s",
+            sc.id, table.concat(reasons, "; "))
+    end
+end
+
+print()
+print("=== ToxFilter Sprint 5c warnings gating ===")
+print(string.format("Scenarios: %d", ws_total))
+local ws_pct = (ws_total > 0) and (100.0 * ws_pass / ws_total) or 0.0
+print(string.format("Pass:      %d / %d (%.1f%%)", ws_pass, ws_total, ws_pct))
+if ws_fail > 0 then
+    print()
+    print("Failures:")
+    for _, l in ipairs(ws_failures) do print(l) end
+end
+
 LUA
 
-lua "$HARNESS_LUA" "$ADDON_DIR" "$CORPUS_LUA" "$CALLOUT_CORPUS_LUA" "$REMINDERS_CORPUS_FILE"
+lua "$HARNESS_LUA" "$ADDON_DIR" "$CORPUS_LUA" "$CALLOUT_CORPUS_LUA" "$REMINDERS_CORPUS_FILE" "$WARNINGS_CORPUS_FILE"

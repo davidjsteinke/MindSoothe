@@ -379,6 +379,13 @@ function Commands.list()
     end
     print(string.format("  reminders:        master %s (%d encounters in journal, %d seen this session)",
         g.tactic_reminders_enabled and "on" or "off", enc_count, seen_count))
+    local inst_count, w_seen = 0, 0
+    if ns.PreDungeon then
+        inst_count = ns.PreDungeon.CountInstances()
+        w_seen     = ns.PreDungeon.CountSeen()
+    end
+    print(string.format("  warnings:         master %s (%d instances with warning data, %d seen this session)",
+        g.predungeon_warnings_enabled and "on" or "off", inst_count, w_seen))
 end
 
 -- ===== Help =====
@@ -400,6 +407,7 @@ local HELP_GROUPS = {
     { "Callout",   "/tox callout || /tox callout on||off"
                 .. " || /tox callout ui on||off || /tox callout sound on||off" },
     { "Reminders", "/tox reminders || /tox reminders on||off || /tox reminders reset" },
+    { "Warnings",  "/tox warnings || /tox warnings on||off || /tox warnings reset" },
     { "Breathe",   "/tox breathe || /tox breathe cycles <N>"
                 .. " || /tox breathe count <N> || /tox breathe position <x> <y>" },
     { "Ready",     "/tox ready || /tox ready list || /tox ready cancel"
@@ -470,6 +478,11 @@ local HELP_COMMANDS = {
              .. " /tox reminders reset clears the session's seen-encounter map so reminders re-surface."
              .. " Reminders fire once per (instance, encounter, difficulty) per session;"
              .. " the seen-map clears automatically on /reload.",
+    warnings  = "/tox warnings — show current warnings state and instance coverage."
+             .. " /tox warnings on||off toggles per-key pre-dungeon warnings (off by default)."
+             .. " /tox warnings reset clears the session's seen-instance map so warnings re-surface."
+             .. " Warnings fire once per dungeon per session at the Mythic+ countdown"
+             .. " (interrupts, dispels, tips for your role); the seen-map clears on /reload.",
     breathe   = "/tox breathe — run the box-breathing animation."
              .. " /tox breathe cycles <1-20> sets cycle count (default 4)."
              .. " /tox breathe count <1-20> sets seconds per phase (default 4)."
@@ -512,6 +525,7 @@ function Commands.summary()
         .. " || /tox check ... || /tox breathe ... || /tox ready ..."
         .. " || /tox callout ..."
         .. " || /tox reminders ..."
+        .. " || /tox warnings ..."
         .. " || /tox retention ... || /tox list"
         .. " || /tox version || /tox rules || /tox test <msg> || /tox classify <msg>"
         .. " || /tox rewrite <msg> || /tox help")
@@ -1186,6 +1200,45 @@ function Commands.reminders(rest)
     out("Usage: /tox reminders || /tox reminders on||off || /tox reminders reset")
 end
 
+-- Sprint 5c: /tox warnings. Master toggle + reset. No-arg form prints state.
+-- Mirrors /tox reminders shape exactly — master+behavior toggle, no sub-toggles.
+function Commands.warnings(rest)
+    local g = db(); if not g then return end
+    local sub = rest:match("^(%S*)") or ""
+    sub = sub:lower()
+
+    if sub == "" then
+        local inst_count, seen_count = 0, 0
+        if ns.PreDungeon then
+            inst_count = ns.PreDungeon.CountInstances()
+            seen_count = ns.PreDungeon.CountSeen()
+        end
+        out("Warnings: master "
+            .. (g.predungeon_warnings_enabled and "on" or "off")
+            .. ". " .. inst_count .. " instances with warning data, "
+            .. seen_count .. " seen this session.")
+        return
+    end
+
+    if sub == "on" then
+        g.predungeon_warnings_enabled = true
+        out("Warnings enabled.")
+        return
+    end
+    if sub == "off" then
+        g.predungeon_warnings_enabled = false
+        out("Warnings disabled.")
+        return
+    end
+    if sub == "reset" then
+        if ns.PreDungeon then ns.PreDungeon.ResetSession() end
+        out("Warnings session reset. Each dungeon will re-surface on next key.")
+        return
+    end
+
+    out("Usage: /tox warnings || /tox warnings on||off || /tox warnings reset")
+end
+
 function Commands.retention(rest)
     local arg = rest:match("^(%S+)") or ""
     if arg == "" then
@@ -1236,6 +1289,7 @@ local DISPATCH = {
     ready     = function(rest) Commands.ready(rest)   end,
     callout   = function(rest) Commands.callout(rest) end,
     reminders = function(rest) Commands.reminders(rest) end,
+    warnings  = function(rest) Commands.warnings(rest) end,
     debug     = function(rest) if ns.Debug then ns.Debug.dispatch(rest) else
                                    out("Unknown command 'debug'. Try /tox help.") end end,
 }
