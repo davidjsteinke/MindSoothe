@@ -59,7 +59,13 @@ function Commands.status()
         return
     end
     if isPaused() then
-        out("Paused — combat window")
+        -- Sprint 7a (F1): note the silent-drop carve-out when it's active, so the
+        -- pause line doesn't read as "everything passes through".
+        if g.combat_silent_drop and ns.Category and ns.Category.gate("toxfilter") then
+            out("Paused — combat window (silent-drop active)")
+        else
+            out("Paused — combat window")
+        end
         return
     end
     if not g.enabled then
@@ -91,6 +97,37 @@ function Commands.off()
     local g = db(); if not g then return end
     g.enabled = false
     out("Filtering disabled.")
+end
+
+-- Sprint 7a (F1): in-combat silent-drop toggle. No-arg shows state (mirrors
+-- /tox callout / /tox reminders). The wording is scoped to match the GUI label
+-- so "combat: on" can't be read as a general combat-window switch — it only
+-- silent-drops pure hostility (slurs, harm) during boss combat; everything else
+-- passes through untouched while paused.
+local COMBAT_SILENT_NOTE = "Note: matching messages vanish with no indication."
+function Commands.combat(rest)
+    local g = db(); if not g then return end
+    local sub = (rest:match("^(%S*)") or ""):lower()
+
+    if sub == "" then
+        out("Combat silent-drop: " .. (g.combat_silent_drop and "on" or "off")
+            .. ". Silent-drops pure hostility (slurs, harm) during boss combat;"
+            .. " nothing else is touched while paused.")
+        if g.combat_silent_drop then out(COMBAT_SILENT_NOTE) end
+        return
+    end
+    if sub == "on" then
+        g.combat_silent_drop = true
+        out("Combat silent-drop enabled.")
+        out(COMBAT_SILENT_NOTE)
+        return
+    end
+    if sub == "off" then
+        g.combat_silent_drop = false
+        out("Combat silent-drop disabled.")
+        return
+    end
+    out("Usage: /tox combat || /tox combat on||off")
 end
 
 -- ===== Channel toggles =====
@@ -354,7 +391,9 @@ function Commands.list()
     print(string.format("    %-12s %s", "uplifter",
         ns.Category and ns.Category.isEnabled("uplifter") and "on" or "off"))
     if isPaused() then
-        print("  state:            paused (combat window)")
+        local suffix = (g.combat_silent_drop and ns.Category and ns.Category.gate("toxfilter"))
+            and " (silent-drop active)" or ""
+        print("  state:            paused (combat window)" .. suffix)
     elseif ns.Database:AllCategoriesPass() then
         print("  state:            soft-disabled (every category set to pass)")
     end
@@ -378,10 +417,12 @@ function Commands.list()
     print(string.format("  role:             %s (effective: %s)", g.role, effectiveRole))
     print(string.format("  blacklist:        %d entries", ns.UserRules.count("blacklist")))
     print(string.format("  whitelist:        %d entries", ns.UserRules.count("whitelist")))
-    print(string.format("  callout:          master %s, ui %s, sound %s",
+    print(string.format("  callout:          master %s, ui %s, sound %s (%s)",
         g.callout_enabled and "on" or "off",
         g.callout_ui      and "on" or "off",
-        g.callout_sound   and "on" or "off"))
+        g.callout_sound   and "on" or "off",
+        ns.Callout and ns.Callout.CurrentSoundName() or "readycheck"))
+    print(string.format("  combat-drop:      %s", g.combat_silent_drop and "on" or "off"))
     local enc_count, seen_count = 0, 0
     if ns.TacticReminders then
         local _, ec = ns.TacticReminders.CountEncounters()
@@ -419,14 +460,16 @@ function Commands.state()
     for _, cat in ipairs(CATEGORY_ORDER) do
         if g.handling[cat] then overridden = overridden + 1 end
     end
-    print(string.format("  toxfilter   handling %d/%d overridden    blacklist %d    whitelist %d",
+    print(string.format("  toxfilter   handling %d/%d overridden    blacklist %d    whitelist %d    combat-drop %s",
         overridden, #CATEGORY_ORDER,
-        ns.UserRules.count("blacklist"), ns.UserRules.count("whitelist")))
+        ns.UserRules.count("blacklist"), ns.UserRules.count("whitelist"),
+        onoff(g.combat_silent_drop)))
     print(string.format(
-        "  uplifter    positive-ui %s    callout %s (ui %s sound %s)"
+        "  uplifter    positive-ui %s    callout %s (ui %s sound %s [%s])"
         .. "    reminders %s    warnings %s    stats-surface %s",
         onoff(g.positive_ui),
         onoff(g.callout_enabled), onoff(g.callout_ui), onoff(g.callout_sound),
+        ns.Callout and ns.Callout.CurrentSoundName() or "readycheck",
         onoff(g.tactic_reminders_enabled), onoff(g.predungeon_warnings_enabled),
         onoff(g.stats_surface)))
     print(string.format("  channels    raid %s    instance %s    bg %s    whisper %s",
@@ -451,7 +494,7 @@ end
 -- Pipes are doubled to "||" so WoW's chat-frame escape parser doesn't consume
 -- them as color-reset (|r) or other escapes. The user sees a single pipe.
 local HELP_GROUPS = {
-    { "Filtering", "/tox on || /tox off || /tox status" },
+    { "Filtering", "/tox on || /tox off || /tox status || /tox combat on||off" },
     { "Category",  "/tox category || /tox category toxfilter on||off || /tox category uplifter on||off" },
     { "Channels",  "/tox channel <name> on||off || /tox channel list" },
     { "Handling",  "/tox handle <category> <pass||edit||del||silent||default>"
@@ -464,7 +507,8 @@ local HELP_GROUPS = {
     { "Pinned",    "/tox star <id> || /tox unstar <id> || /tox starred" },
     { "Ritual",    "/tox check [add||remove||list||y||n||cancel] [item]" },
     { "Callout",   "/tox callout || /tox callout on||off"
-                .. " || /tox callout ui on||off || /tox callout sound on||off" },
+                .. " || /tox callout ui on||off"
+                .. " || /tox callout sound on||off||set <name>||list||preview <name>" },
     { "Reminders", "/tox reminders || /tox reminders on||off || /tox reminders reset" },
     { "Warnings",  "/tox warnings || /tox warnings on||off || /tox warnings reset" },
     { "Breathe",   "/tox breathe || /tox breathe cycles <N>"
@@ -484,7 +528,14 @@ local HELP_COMMANDS = {
     off       = "/tox off — disable filtering globally."
              .. " Rule engine still runs for /tox test/classify/rewrite.",
     status    = "/tox status — Active, Disabled, or Paused (combat window)."
-             .. " Also notes a category master that is off.",
+             .. " Notes the in-combat silent-drop carve-out when active,"
+             .. " and a category master that is off.",
+    combat    = "/tox combat — show the in-combat silent-drop state."
+             .. " /tox combat on||off toggles it (default on)."
+             .. " When on, high-confidence pure hostility (slurs, harm) is"
+             .. " silent-dropped during boss combat; everything else passes"
+             .. " through untouched while paused. Matching messages vanish with"
+             .. " no indication. Gated by the ToxFilter category and the master.",
     category  = "/tox category — show both category master states."
              .. " /tox category toxfilter on||off gates the chat-hygiene family"
              .. " (filtering, handling, blacklist, rewrite, test fixtures)."
@@ -548,7 +599,9 @@ local HELP_COMMANDS = {
              .. " /tox callout on||off toggles the master switch (off by default)."
              .. " /tox callout ui on||off — visual amber tint when a callout addresses your role."
              .. " /tox callout sound on||off — audio cue at the same moment."
-             .. " Callouts fire during combat too (time-critical).",
+             .. " /tox callout sound set <name> picks the cue; list shows the"
+             .. " choices; preview <name> plays one once. Callouts fire during"
+             .. " combat too (time-critical).",
     reminders = "/tox reminders — show current reminders state and journal coverage."
              .. " /tox reminders on||off toggles pre-encounter tactical reminders (off by default)."
              .. " /tox reminders reset clears the session's seen-encounter map so reminders re-surface."
@@ -719,6 +772,13 @@ local function fmtStamp(ts)
     return tostring(ts)
 end
 
+-- Sprint 7a (F4): a captured emote ("Bob thanks you.") reads in third person,
+-- unlike typed praise. Mark it so the moment's provenance is honest; the flag is
+-- already stored on the moment's signals, so the marker is near-free.
+local function emoteTag(m)
+    return (m and m.signals and m.signals.emote) and " (emote)" or ""
+end
+
 function Commands.lift()
     if not (ns.Buffer and ns.Buffer.GetMostRecentPositiveMoment) then
         out("Buffer not loaded.")
@@ -729,7 +789,7 @@ function Commands.lift()
         out("No recent positive moments captured.")
         return
     end
-    out(fmtStamp(m.ts) .. " — " .. m.id .. " — '" .. (m.text or "") .. "'")
+    out(fmtStamp(m.ts) .. " — " .. m.id .. " — '" .. (m.text or "") .. "'" .. emoteTag(m))
 end
 
 function Commands.positive(rest)
@@ -767,7 +827,7 @@ function Commands.positive(rest)
     end
     out(string.format("Positive moments (%d most recent):", #moments))
     for _, m in ipairs(moments) do
-        print(string.format("  %s  %s  '%s'", fmtStamp(m.ts), m.id, m.text or ""))
+        print(string.format("  %s  %s  '%s'%s", fmtStamp(m.ts), m.id, m.text or "", emoteTag(m)))
     end
 end
 
@@ -945,7 +1005,7 @@ function Commands.starred()
     if #list == 0 then out("No pinned moments."); return end
     out(string.format("Pinned moments (%d):", #list))
     for _, m in ipairs(list) do
-        print(string.format("  %s  %s  '%s'", fmtStamp(m.ts), m.id, m.text or ""))
+        print(string.format("  %s  %s  '%s'%s", fmtStamp(m.ts), m.id, m.text or "", emoteTag(m)))
     end
 end
 
@@ -1179,17 +1239,65 @@ end
 -- prints state for all three (matches the user spec; differs from /tox
 -- positive's no-arg-toggles behavior). Sub-toggles only apply meaningfully
 -- while the master is enabled; the printed state surfaces both regardless.
+-- Sprint 7a (F2): `sound` now also takes set/list/preview alongside the
+-- unchanged on/off. Parse up to three tokens (sub, after, trailing name) so
+-- `sound set <name>` / `sound preview <name>` work.
+local function calloutSound(g, after, name)
+    -- Unchanged audio master toggle.
+    if after == "on" or after == "off" then
+        g.callout_sound = (after == "on")
+        out("Callout sound " .. (g.callout_sound and "enabled" or "disabled") .. ".")
+        return
+    end
+    if after == "list" then
+        out("Callout sounds (current: " .. ns.Callout.CurrentSoundName() .. "):")
+        for _, c in ipairs(ns.Callout.SOUND_CHOICES) do
+            local mark = (c.id == ns.Callout.CurrentSoundId()) and " *" or ""
+            print(string.format("  %-12s %s%s", c.name, c.label, mark))
+        end
+        return
+    end
+    if after == "set" then
+        local id = ns.Callout.ResolveSoundName(name)
+        if not id then
+            out("Unknown sound '" .. (name ~= "" and name or "<none>")
+                .. "'. Run /tox callout sound list.")
+            return
+        end
+        g.callout_sound_id = id
+        out("Callout sound set to " .. name .. ".")
+        ns.Callout.PreviewSound(name)
+        return
+    end
+    if after == "preview" then
+        if not ns.Callout.PreviewSound(name) then
+            out("Unknown sound '" .. (name ~= "" and name or "<none>")
+                .. "'. Run /tox callout sound list.")
+        end
+        return
+    end
+    if after == "" then
+        out("Callout sound: " .. (g.callout_sound and "on" or "off")
+            .. ", selected " .. ns.Callout.CurrentSoundName() .. ".")
+        out("Usage: /tox callout sound on||off || set <name> || list || preview <name>")
+        return
+    end
+    out("Usage: /tox callout sound on||off || set <name> || list || preview <name>")
+end
+
 function Commands.callout(rest)
     local g = db(); if not g then return end
-    local sub, after = rest:match("^(%S*)%s*(%S*)$")
-    sub = (sub or ""):lower()
-    after = (after or ""):lower()
+    local a, b, c = rest:match("^(%S*)%s*(%S*)%s*(.*)$")
+    local sub   = (a or ""):lower()
+    local after = (b or ""):lower()
+    local name  = ((c or ""):match("^(%S*)") or ""):lower()
 
     if sub == "" then
         out("Callout: master "
             .. (g.callout_enabled and "on" or "off")
             .. ", ui "    .. (g.callout_ui    and "on" or "off")
-            .. ", sound " .. (g.callout_sound and "on" or "off") .. ".")
+            .. ", sound " .. (g.callout_sound and "on" or "off")
+            .. " (" .. ns.Callout.CurrentSoundName() .. ").")
         if ns.Callout and ns.Callout.GetStateMismatchNote then
             local note = ns.Callout.GetStateMismatchNote()
             if note then out(note) end
@@ -1222,17 +1330,12 @@ function Commands.callout(rest)
         return
     end
     if sub == "sound" then
-        if after ~= "on" and after ~= "off" then
-            out("Usage: /tox callout sound <on||off>")
-            return
-        end
-        g.callout_sound = (after == "on")
-        out("Callout sound " .. (g.callout_sound and "enabled" or "disabled") .. ".")
+        calloutSound(g, after, name)
         return
     end
 
     out("Usage: /tox callout || /tox callout on||off"
-        .. " || /tox callout ui on||off || /tox callout sound on||off")
+        .. " || /tox callout ui on||off || /tox callout sound on||off||set||list||preview")
 end
 
 -- Sprint 5b: /tox reminders. Master toggle + reset. No-arg form prints state.
@@ -1383,6 +1486,7 @@ local DISPATCH = {
     on        = function(_)    Commands.on()        end,
     off       = function(_)    Commands.off()       end,
     status    = function(_)    Commands.status()    end,
+    combat    = function(rest) Commands.combat(rest) end,
     channel   = function(rest) Commands.channel(rest) end,
     handle    = function(rest) Commands.handle(rest)  end,
     role      = function(rest) Commands.role(rest)    end,

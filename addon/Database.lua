@@ -10,7 +10,7 @@
 
 local _, ns = ...
 
-local LATEST_SCHEMA_VERSION = 10
+local LATEST_SCHEMA_VERSION = 11
 
 -- Schema. Anything user-overridable is named here so a fresh install lands at
 -- the latest version already populated. handling[<cat>] left absent on purpose:
@@ -76,20 +76,34 @@ local DEFAULTS = {
         callout_ui      = true,
         callout_sound   = true,
 
-        -- Sprint 5b: pre-encounter tactical reminders. Master off by default
-        -- (opt-in, same as positive_ui and callout_enabled). seen-map is
-        -- session-scoped despite db storage: TacticReminders.ResetSession()
-        -- is called from OnInitialize on every /reload so reminders
-        -- re-surface each session.
-        tactic_reminders_enabled = false,
+        -- Sprint 7a (F2): selectable callout sound. SoundKit id; default 8960
+        -- (READY_CHECK), the Sprint 5-fix locked default. Choices live in
+        -- Callout.SOUND_CHOICES; the panel/slash write the id here.
+        callout_sound_id = 8960,
+
+        -- Sprint 7a (F1): in-combat silent-drop. DEFAULT ON. During the combat
+        -- pause, high-confidence pure hostility (slur, harm_invocation) is
+        -- silent-dropped; everything else still passes through untouched. Gated
+        -- by the ToxFilter category (and the addon master). Matching messages
+        -- vanish with no indication — see Commands COMBAT_SILENT_NOTE.
+        combat_silent_drop = true,
+
+        -- Sprint 5b: pre-encounter tactical reminders. Pre-7b: default ON for new
+        -- installs (fresh SavedVariables only — no schema bump, no migration; the
+        -- v7 backfill below still seeds false for pre-field upgrades, preserving
+        -- existing data). seen-map is session-scoped despite db storage:
+        -- TacticReminders.ResetSession() is called from OnInitialize on every
+        -- /reload so reminders re-surface each session.
+        tactic_reminders_enabled = true,
         tactic_reminders_seen    = {},
 
-        -- Sprint 5c: per-key pre-dungeon warnings. Master off by default
-        -- (opt-in, same as positive_ui / callout_enabled / tactic_reminders).
+        -- Sprint 5c: per-key pre-dungeon warnings. Pre-7b: default ON for new
+        -- installs (same fresh-install-only rationale as tactic_reminders above;
+        -- the v8 backfill below still seeds false for pre-field upgrades).
         -- seen-map is session-scoped despite db storage: PreDungeon.ResetSession()
         -- is called from OnInitialize on every /reload so warnings re-surface
         -- each session.
-        predungeon_warnings_enabled = false,
+        predungeon_warnings_enabled = true,
         predungeon_warnings_seen    = {},
 
         -- Sprint 5d: category master toggles. Two families sit beneath the
@@ -225,6 +239,16 @@ local migrations = {
         -- The Sprint 6 PIIScrub broadening is pure live-path logic with no
         -- stored-shape change, so it needs no migration step.
         g.feedback_log = nil
+    end,
+    [11] = function(g)
+        -- Sprint 7a: the sole schema bump for Sprint 7. Backfills exactly two
+        -- fields and nothing else.
+        --   * callout_sound_id (F2): default 8960 (READY_CHECK) — keeps existing
+        --     users on the sound they already had before the choice existed.
+        --   * combat_silent_drop (F1): default true (opt-out), so the in-combat
+        --     silent-drop of pure hostility is on for existing installs too.
+        if g.callout_sound_id   == nil then g.callout_sound_id   = 8960 end
+        if g.combat_silent_drop == nil then g.combat_silent_drop = true end
     end,
 }
 

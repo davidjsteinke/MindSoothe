@@ -13,7 +13,7 @@
 local _, ns = ...
 
 local ADDON_NAME = "ToxFilter"
-local VERSION = "0.6.0-sprint6b"
+local VERSION = "0.7.0-sprint7a"
 
 local ToxFilter = LibStub("AceAddon-3.0"):NewAddon(
     ADDON_NAME,
@@ -192,6 +192,29 @@ local function chatFilter(_chatFrame, event, msg, ...)
             ns.Callout.playSoundIfEligible(callout)
             local tinted = ns.Callout.tintIfEligible(msg, callout)
             if tinted then return false, tinted, ... end
+        end
+        -- Sprint 7a (F1): in-combat silent-drop of high-confidence pure
+        -- hostility. Everything else still passes through untouched during the
+        -- pause. CombatDrop.shouldDrop folds in the toggle + ToxFilter category
+        -- (+ master); channelEnabled keeps it consistent with the non-combat
+        -- handling path (channel-off suppresses the drop). The flagged-event
+        -- write stores classification metadata only (category, combat flag),
+        -- never the body — combat drops are pure third-party hostility.
+        if channelEnabled and ns.CombatDrop and ns.CombatDrop.shouldDrop(result) then
+            if ns.Buffer and result.category then
+                ns.Buffer:RecordFlaggedEvent(result.category, result.severity, true)
+            end
+            return true
+        end
+        -- Sprint 7a (F1): ToxFilterTest:Silent rides the combat path so the
+        -- feature is verifiable in-game without typing real hostility into a live
+        -- group. Documented widening of G3 (other fixtures still pass through
+        -- during pause); gated by the same toggle + ToxFilter category so it
+        -- cannot fire unexpectedly. No flagged-event write (it's a test trigger).
+        if channelEnabled and db and db.combat_silent_drop
+           and ns.Category and ns.Category.gate("toxfilter")
+           and msg:find(TRIGGER_SILENT, 1, true) then
+            return true
         end
         return false
     end
@@ -410,6 +433,9 @@ function ToxFilter:OnEnable()
     self:RegisterEvent("CHALLENGE_MODE_COMPLETED", "OnChallengeModeCompleted")
     self:RegisterEvent("CHALLENGE_MODE_RESET",   "OnChallengeModeReset")
     self:RegisterEvent("PLAYER_DEAD",            "OnPlayerDead")
+    -- Sprint 7a (F4): emote-directed positive capture. Not a chat-frame filter
+    -- (we don't modify emotes); a plain event subscription that feeds capture.
+    self:RegisterEvent("CHAT_MSG_TEXT_EMOTE",    "OnTextEmote")
 
     self:RegisterChatCommand("tox", "OnSlashCommand")
 
@@ -516,6 +542,15 @@ function ToxFilter:OnPlayerDead()
     local bucket = effectiveBucket()
     if instance and bucket then
         ns.Buffer:RecordDeath(instance, bucket)
+    end
+end
+
+-- Sprint 7a (F4): CHAT_MSG_TEXT_EMOTE → positive capture. arg1 is the rendered
+-- emote text ("<Name> thanks you."), arg2 the sender. Self-gates on the Uplifter
+-- category inside captureEmote; enUS-only detection (documented limitation).
+function ToxFilter:OnTextEmote(_event, text, sender)
+    if ns.PositiveCapture and ns.PositiveCapture.captureEmote then
+        ns.PositiveCapture.captureEmote(text, sender)
     end
 end
 

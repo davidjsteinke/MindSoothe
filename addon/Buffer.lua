@@ -166,11 +166,16 @@ function Buffer:RecordPositiveMoment(text, signals, direct_to_user, sender)
     return moment
 end
 
-function Buffer:RecordFlaggedEvent(category, severity)
+-- Sprint 7a (F1): `combat` flags a record dropped during the combat pause. Like
+-- every flagged event it stores classification metadata (category, severity)
+-- only — never the message body. Combat drops are pure third-party hostility and
+-- the body must not be retained; this matches the non-combat silent path and
+-- does not exceed it.
+function Buffer:RecordFlaggedEvent(category, severity, combat)
     local g = db(); if not g then return end
-    table.insert(g.session_buffer.events.flagged_events, {
-        ts = now_ts(), category = category, severity = severity or 5,
-    })
+    local rec = { ts = now_ts(), category = category, severity = severity or 5 }
+    if combat then rec.combat = true end
+    table.insert(g.session_buffer.events.flagged_events, rec)
     touchSession(g)
 end
 

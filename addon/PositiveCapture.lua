@@ -39,6 +39,27 @@ local CALLOUT_PHRASES = {
     { "good", "run" },
 }
 
+-- Sprint 7a (F3): typo tolerance for the positive-capture keyword sets. Length
+-- floor 5 keeps the dense short-word neighbourhoods exact-only: "thanks"(6) and
+-- "thank"(5) gain distance-1 tolerance ("thansk"), but "thx"/"ty"/"gg"/"good"/
+-- "nice"/"big"/"huge" do not. CALLOUTS (gg/wp/ez) and the multi-word
+-- CALLOUT_PHRASES stay exact. Role targets are matched exact-only in detect()
+-- below — never fuzzed. Never wired into the classifier / rule engine / lists.
+local FUZZY_MINLEN = 5
+local THANKS_FUZZY    = ns.Fuzzy and ns.Fuzzy.bucketize(THANKS_TOKENS, FUZZY_MINLEN) or {}
+local POS_VERBS_FUZZY = ns.Fuzzy and ns.Fuzzy.bucketize(POS_VERBS, FUZZY_MINLEN) or {}
+local POS_PLAYS_FUZZY = ns.Fuzzy and ns.Fuzzy.bucketize(POS_PLAYS, FUZZY_MINLEN) or {}
+
+local function inThanks(t)
+    return THANKS_TOKENS[t] or (ns.Fuzzy and ns.Fuzzy.matches(t, THANKS_FUZZY, FUZZY_MINLEN)) or false
+end
+local function inPosVerb(t)
+    return POS_VERBS[t] or (ns.Fuzzy and ns.Fuzzy.matches(t, POS_VERBS_FUZZY, FUZZY_MINLEN)) or false
+end
+local function inPosPlay(t)
+    return POS_PLAYS[t] or (ns.Fuzzy and ns.Fuzzy.matches(t, POS_PLAYS_FUZZY, FUZZY_MINLEN)) or false
+end
+
 -- Sprint 5 refactor: role-target lookup lives in Patterns.lua so Callout.lua
 -- and PositiveCapture.lua share the same definition. Local accessors below
 -- preserve the previous direct-membership / per-role-set call shape so the
@@ -116,7 +137,7 @@ local function detect(normalized_tokens, signals)
     local role  = userRole()
 
     for i = 1, n - 1 do
-        if THANKS_TOKENS[normalized_tokens[i]] then
+        if inThanks(normalized_tokens[i]) then
             local nxt = normalized_tokens[i + 1]
             if roleTargetMatches(nxt) then
                 local direct = roleTargetMatchesUser(nxt, role)
@@ -135,8 +156,20 @@ local function detect(normalized_tokens, signals)
         end
     end
 
+    -- Bare thanks with no role/user target ("ty", "thanks all") is still a
+    -- positive moment in the room — just not direct-to-user, so it does NOT bump
+    -- the thanks counters (direct=false, same as a "gg" callout). Lower
+    -- precedence than the targeted thanks_role/thanks_user above. Scans all n
+    -- tokens because the targeted loop stops at n-1 and so misses a lone or
+    -- trailing thanks token (the single-token "ty" that prompted this).
+    for i = 1, n do
+        if inThanks(normalized_tokens[i]) then
+            return { pattern = "thanks", direct = false }
+        end
+    end
+
     for i = 1, n - 1 do
-        if POS_VERBS[normalized_tokens[i]] and POS_PLAYS[normalized_tokens[i + 1]] then
+        if inPosVerb(normalized_tokens[i]) and inPosPlay(normalized_tokens[i + 1]) then
             return { pattern = "compliment_play", direct = false }
         end
     end
@@ -214,8 +247,97 @@ local function capture(msg, classifier_result, event, sender)
     return moment
 end
 
+-- ===== Sprint 7a (F4): emote capture =====
+--
+-- enUS-ONLY BY CONSTRUCTION. Detection keys on English emote verbs and the
+-- self-target token "you"/"your" that enUS renders for an emote aimed at the
+-- player ("<Name> thanks you."). Other locales render different strings and will
+-- not match — a documented limitation, surfaced in the README, not a silent gap.
+-- A future locale pass would table-drive these tokens (and ideally read the
+-- GlobalStrings emote templates) rather than hardcode English.
+local EMOTE_VERBS = set({ "thank", "thanks", "cheer", "cheers", "salute", "salutes" })
+local EMOTE_SELF  = set({ "you", "your" })
+
+-- The two emotes captured even when untargeted: /thanks and /cheer. Any verb in
+-- EMOTE_VERBS still captures when aimed at the player (verb + "you"/"your"), but
+-- only these "broadcast" verbs also count when sent to the room with no target
+-- ("Bob cheers.", "Bob thanks everyone."). /salute and the rest stay targeted-
+-- only — an untargeted salute is ambient, not directed praise.
+local BROADCAST_VERBS = set({ "thank", "thanks", "cheer", "cheers" })
+
+-- Lowercase + split on non-letters. "Bob thanks you." -> {bob, thanks, you}.
+local function emoteTokenize(text)
+    local out = {}
+    for tok in text:lower():gmatch("%a+") do
+        out[#out + 1] = tok
+    end
+    return out
+end
+
+-- Returns a match table when the rendered emote text is a positive emote.
+-- Two ways to match:
+--   1. Aimed at the player: any EMOTE_VERBS verb + a self-target ("you"/"your").
+--      Covers "Bob thanks you.", "Carol salutes you.", "Dave cheers at you.".
+--   2. Untargeted /thanks or /cheer (BROADCAST_VERBS): the verb with no "at"
+--      target — "Bob cheers.", "Bob thanks everyone." A trailing "at <name>"
+--      means it was aimed at someone else ("Bob cheers at Carol.") and is left
+--      to rule 1, so a third-party emote without "you" stays uncaptured.
+-- /salute and other verbs still need rule 1's self-target; an untargeted salute
+-- is ambient, not directed praise. Pure function; exported for the corpus harness.
+local function emoteDetect(text)
+    if type(text) ~= "string" or text == "" then return nil end
+    local toks = emoteTokenize(text)
+    local verb, selfref, broadcast, hasAt = false, false, false, false
+    for i = 1, #toks do
+        if EMOTE_VERBS[toks[i]]     then verb = true end
+        if BROADCAST_VERBS[toks[i]] then broadcast = true end
+        if EMOTE_SELF[toks[i]]      then selfref = true end
+        if toks[i] == "at"          then hasAt = true end
+    end
+    if verb and selfref then return { pattern = "emote" } end
+    if broadcast and not hasAt then return { pattern = "emote" } end
+    return nil
+end
+
+-- Your own outgoing emote ("You thank Bob.") also fires CHAT_MSG_TEXT_EMOTE and
+-- contains both a verb and "you" (as subject, not target). Skip it: a moment is
+-- something someone ELSE directed at you. Realm-suffix-stripped, case-insensitive.
+local function isSelfSender(sender)
+    if not sender or type(UnitName) ~= "function" then return false end
+    local me = UnitName("player")
+    if not me then return false end
+    me = (me:match("^([^-]+)") or me):lower()
+    local s = (sender:match("^([^-]+)") or sender):lower()
+    return me == s
+end
+
+-- Capture a targeted positive emote as a positive moment. Respects the Uplifter
+-- category gate + addon master exactly like typed-thanks capture. The rendered
+-- text passes through PIIScrub (sender threaded) like any capture, so the
+-- sender's name in "<Name> thanks you." is scrubbed. direct_to_user = true so it
+-- increments the same thanks/positive counters as typed praise.
+local function captureEmote(text, sender)
+    if type(text) ~= "string" or text == "" then return nil end
+    if not (ns.Category and ns.Category.gate("uplifter")) then
+        dbg("PositiveCapture.captureEmote: uplifter category off, skipping")
+        return nil
+    end
+    if isSelfSender(sender) then
+        dbg("PositiveCapture.captureEmote: own emote, skipping (sender=%s)", tostring(sender))
+        return nil
+    end
+    if not emoteDetect(text) then return nil end
+    if not (ns.Buffer and ns.Buffer.RecordPositiveMoment) then return nil end
+    local moment = ns.Buffer:RecordPositiveMoment(text, { pattern = "emote", emote = true }, true, sender)
+    dbg("PositiveCapture.captureEmote: recorded emote moment")
+    if moment then notify(moment) end
+    return moment
+end
+
 ns.PositiveCapture = {
-    capture   = capture,
-    subscribe = subscribe,
-    detect    = detect,
+    capture     = capture,
+    captureEmote = captureEmote,
+    emoteDetect = emoteDetect,
+    subscribe   = subscribe,
+    detect      = detect,
 }

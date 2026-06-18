@@ -1,0 +1,66 @@
+-- Sprint 7a: in-combat silent-drop gate. During the Midnight combat pause the
+-- filter passes everything through (Section G) with the existing read-only
+-- callout carve-out. This adds ONE more carve-out: high-confidence pure hostility
+-- is silent-dropped while paused. Rationale: a rewrite mistake in combat is
+-- expensive, but a message with zero information content costs nothing to drop.
+--
+-- The gate errs narrow. A message qualifies only when ALL hold:
+--   1. Winning category is in CATEGORIES — the two rule-data-driven, near-zero-
+--      information categories (slur, harm_invocation). identity_attack is
+--      deliberately excluded: its rule coverage is sparse, and sparse + silent +
+--      combat is the worst place for a false drop. Editable here, revisit 7b.
+--   2. handling ~= "pass" (it actually flagged).
+--   3. Purity: no token carries the "tactical" label. ANY tactical/informational
+--      content makes the message pass through untouched. "move out of fire <slur>"
+--      keeps its fire/move/out tactical labels -> not pure -> passes.
+--
+-- shouldDrop also folds in the new toggle (db.combat_silent_drop) and the
+-- ToxFilter category gate (which includes the addon master). It's chat-hygiene
+-- handling, so it rides the ToxFilter family, not Uplifter.
+--
+-- Pure read; never writes. Safe for the corpus harness — it drives shouldDrop
+-- directly off RuleEngine.classify output.
+
+local _, ns = ...
+
+local CombatDrop = {}
+
+-- Editable narrow set. Do not add identity_attack without revisiting the
+-- sparse-coverage reasoning above.
+local CATEGORIES = {
+    slur            = true,
+    harm_invocation = true,
+}
+CombatDrop.CATEGORIES = CATEGORIES
+
+-- No surviving tactical/informational token.
+local function isPure(result)
+    local labels = result and result.labels
+    if not labels then return false end
+    for i = 1, #labels do
+        if labels[i] == "tactical" then return false end
+    end
+    return true
+end
+CombatDrop.isPure = isPure
+
+-- Classification-only eligibility: category in the narrow set, flagged, pure.
+-- No db / toggle / category consultation — that is shouldDrop's job.
+function CombatDrop.eligible(result)
+    if not result then return false end
+    if result.handling == "pass" then return false end
+    if not CATEGORIES[result.category] then return false end
+    return isPure(result)
+end
+
+-- Full live decision: eligible AND the toggle is on AND the ToxFilter category
+-- (and thus the addon master) is on.
+function CombatDrop.shouldDrop(result)
+    if not CombatDrop.eligible(result) then return false end
+    local g = ns.Database and ns.Database:Get() or nil
+    if not g or not g.combat_silent_drop then return false end
+    if not (ns.Category and ns.Category.gate("toxfilter")) then return false end
+    return true
+end
+
+ns.CombatDrop = CombatDrop

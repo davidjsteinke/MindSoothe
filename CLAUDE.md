@@ -21,7 +21,7 @@ User-facing text — slash command output, system messages, errors, README — i
 **Tonal-violation grep (permanent CI hygiene, every sprint).** Before declaring user-facing string changes done, grep the diff for `!`, `great`, `oops`, `sorry` in any string literal printed via `print(` or `out(`. Cheap; running it consistently keeps drift from accumulating. Self-referential matches (the grep documentation itself, pattern-data tables that legitimately contain words like "great") are acceptable.
 
 Current grep target set:
-`addon/Commands.lua addon/PositiveCapture.lua addon/Stats.lua addon/Grounding.lua addon/ToxFilter.lua addon/Database.lua addon/Buffer.lua addon/PIIScrub.lua addon/Highlight.lua addon/Breathing.lua addon/Ready.lua addon/Debug.lua addon/Callout.lua addon/JournalData.lua addon/TacticReminders.lua addon/PreDungeonData.lua addon/PreDungeon.lua addon/Category.lua addon/Options.lua`
+`addon/Commands.lua addon/PositiveCapture.lua addon/Stats.lua addon/Grounding.lua addon/ToxFilter.lua addon/Database.lua addon/Buffer.lua addon/PIIScrub.lua addon/Highlight.lua addon/Breathing.lua addon/Ready.lua addon/Debug.lua addon/Callout.lua addon/JournalData.lua addon/TacticReminders.lua addon/PreDungeonData.lua addon/PreDungeon.lua addon/Category.lua addon/Options.lua addon/CombatDrop.lua addon/Fuzzy.lua`
 
 ## Repo layout
 
@@ -57,7 +57,18 @@ WSL Ubuntu 24.04 → Windows WoW client.
 7. In-game `/reload` (manual — addon never triggers /reload itself).
 8. Verify per `Verification_Protocol.md` section for the current sprint.
 
-## Current state — Build 1 Sprint 6b
+## Current state — Build 1 Sprint 7a
+
+Version `0.7.0-sprint7a`. Schema v11. Shipped in 7a (feature build; 7b is later — classifier tuning, content language polish, full regression pass — do NOT start tuning here):
+
+- **Feature 1 — in-combat silent-drop** (`addon/CombatDrop.lua`): during the Midnight combat pause, high-confidence *pure* hostility is silent-dropped; everything else still passes through untouched. Gate (errs narrow): winning category ∈ `{ slur, harm_invocation }` (identity_attack deliberately excluded — sparse rule coverage, worst place for a blind silent drop; editable in `CombatDrop.CATEGORIES`, revisit 7b), `handling ~= "pass"`, and **purity** = no token carries the `"tactical"` label (any tactical/informational content → passes). `CombatDrop.shouldDrop` folds in the new toggle + `Category.gate("toxfilter")` (which includes the master). Wired into `chatFilter`'s paused branch after the callout carve-out, channel-gated. Flagged-event write records classification metadata only (category, severity, `combat=true`) — never the body (combat drops are pure third-party hostility). `ToxFilterTest:Silent` rides the combat path (gated by the same toggle+category) so the feature is verifiable in-game without typing real hostility — a documented widening of G3 (needs a Verification_Protocol erratum). Toggle `combat_silent_drop` (DEFAULT ON, v11); `/tox combat [on|off]`; GUI toggle under ToxFilter. `/tox status` paused line notes `(silent-drop active)` when on.
+- **Feature 2 — selectable callout sound** (`addon/Callout.lua`): `Callout.SOUND_CHOICES` is one easily-edited `{id,name,label}` table (ids PROVISIONAL — audition via preview and swap). `playSoundIfEligible` reads `callout_sound_id` (default 8960, v11) via `Callout.CurrentSoundId` (falls back to default if the stored id is no longer a valid choice). `/tox callout sound on|off` unchanged; added `set <name>` / `list` / `preview <name>`. GUI dropdown under Uplifter→Callout previews on select.
+- **Feature 3 — typo tolerance** (`addon/Fuzzy.lua`): Damerau distance-1 (`within1`, direct O(n), no DP table) for the positive-capture (`THANKS_TOKENS`/`POS_VERBS`/`POS_PLAYS`) and callout (`CALLOUT_VERBS`) keyword sets ONLY — never the classifier/rule engine/blacklist/whitelist (load-bearing scope line). Guards: length floor 5 (short keywords exact-only) and **role targets always exact-only** (a typo firing the wrong-role callout is the expensive failure; a fuzzy verb can only fire alongside a correctly-spelled role anchor). Exact lookup stays the hot path; fuzzy only on miss, length-bucketed against <50 keywords — negligible per-message cost.
+- **Feature 4 — emote capture** (`addon/PositiveCapture.lua` `emoteDetect`/`captureEmote`, `CHAT_MSG_TEXT_EMOTE` handler in `ToxFilter.lua`): two match rules — (1) any `/thanks`/`/cheer`/`/salute` emote aimed at the player (verb + self-target "you"/"your"), and (2) untargeted `/thanks` or `/cheer` broadcast to the room (`BROADCAST_VERBS` = thank/cheer, no `"at"` token, so a third-party "at <name>" still falls under rule 1 and an emote without "you" stays uncaptured). `/salute` and other verbs stay targeted-only. Captured as positive moments. Own outgoing emotes skipped (sender == player guard). Records via `RecordPositiveMoment` with `direct_to_user=true` so it increments the same thanks counters; `signals.emote` drives a `(emote)` marker in `/tox positive`/`lift`/`starred`. PII-scrubbed like any capture; self-gates on `Category.gate("uplifter")`. **enUS-only by construction** (documented in code + README). v11 adds no field for F3/F4.
+- **Schema v11 (sole Sprint 7 bump):** `migrations[11]` backfills exactly two fields — `callout_sound_id=8960`, `combat_silent_drop=true` — and nothing else.
+- Corpus: `corpus/sprint7a_combat.lua` (18 checks — gate truth table via real classify→shouldDrop), `corpus/sprint7a_fuzzy.lua` (9 — distance-1 positives fire, short-word/role-target guards hold, must-not-fire slur variant stays pass + uncaptured), `corpus/sprint7a_emote.lua` (7 — emoteDetect logic; event wiring + self-sender guard + enUS rendering are in-game-only). Harness loads `Fuzzy`/`CombatDrop`/`PositiveCapture`.
+
+### Prior — Build 1 Sprint 6b
 
 Version `0.6.0-sprint6b`. Schema v10. Shipped since 5d:
 
@@ -149,6 +160,11 @@ Debug-gated prints (gated on `g.debug_enabled`) are permanent infrastructure, no
 3. Callout.detect + matchesUser (read-only; runs during pause too — time-critical)
 4. If paused:
      - channel-on AND callout matches: tint + sound, return tinted
+     - channel-on AND `CombatDrop.shouldDrop(result)` (Sprint 7a F1): silent-drop
+       (return true) + flagged-event write (metadata only). High-confidence pure
+       hostility only; everything else continues to pass through.
+     - channel-on AND `combat_silent_drop` + ToxFilter category + `ToxFilterTest:Silent`
+       substring (Sprint 7a F1): silent-drop (in-game test path for the carve-out)
      - otherwise: pass
 5. Non-paused, channel-on: handling (silent/del/edit) with flagged-event buffer write
 6. Non-paused: PositiveCapture.capture on `pass` verdict (whisper carve-out inside)
@@ -203,7 +219,8 @@ Shipped-sprint detail lives in `CLAUDE_ARCHIVE.md`. Future work:
 
 - **Sprint 5b content:** complete — all eight dungeons locked. In-game verification still pending (not all zones tested for bugs yet).
 - **Sprint 5c content:** pre-dungeon warning data (interrupts/dispels/tips) per the per-dungeon approval workflow; `PREDUNGEON_DATA_VERSION` still 0.
-- **Build 1 Sprint 7:** corpus expansion + threshold-gate enforcement. Locked targets: slur ≥98%, role_attack ≥90%, harm_invocation ≥95%, identity_attack ≥90%, harassment ≥70%, general_hostility ≥60%, rewrite correctness ≥90%. Tuning pass: under-absorbed neutrals at attack-span edges; spec-name attack detection; absorption-list expansion.
+- **Build 1 Sprint 7a:** feature build — shipped (see Current state). In-game verification still pending.
+- **Build 1 Sprint 7b:** classifier tuning + content language polish + full regression pass with threshold-gate enforcement. Locked targets: slur ≥98%, role_attack ≥90%, harm_invocation ≥95%, identity_attack ≥90%, harassment ≥70%, general_hostility ≥60%, rewrite correctness ≥90%. Tuning pass: under-absorbed neutrals at attack-span edges; spec-name attack detection; absorption-list expansion. (Do not start tuning before 7b.)
 - **Build 1 Sprint 8:** CurseForge distribution pipeline. `METADATA.JOURNAL_DATA_VERSION` enables content-only updates.
 - **Build 1 Sprint 9:** configuration UI — shipped early as Sprint 6b's options panel; remaining Sprint 9 scope (if any) to be decided.
 - **Build 2:** companion app — LLM-based recap generation, central rule classification.
@@ -239,4 +256,5 @@ Each entry corresponds to a detailed section in `CLAUDE_ARCHIVE.md`. The archive
 - **Sprint 5c** — per-key pre-dungeon warnings (`PreDungeon.lua`/`PreDungeonData.lua`): role-filtered interrupts/dispels/tips at `CHALLENGE_MODE_START`, dual-surface, empty-category-as-first-class; `/tox warnings`; schema v8; infrastructure only (`PREDUNGEON_DATA_VERSION = 0`, content authoring pending).
 - **Sprint 5d** — category master toggles (`Category.lua`): ToxFilter / Uplifter families, `/tox category`, three-layer master→category→feature gate, sub-state preservation, Stats counting ungated while surfacing gated, `/tox off` promoted to addon-wide master; schema v9.
 - **Sprint 6** — PII scrub audit (`PII_Audit_Sprint6.md`, audit-only commit) + remediation: PIIScrub broadened to known-name matching (sender threading, current character, alt roster; precision over recall; B1 collision rule); orphan `feedback_log` removed; schema v10; 18-fixture scrub corpus.
-- **Sprint 6b** — options panel (`Options.lua` + embedded AceGUI/AceConfig): GUI as a view over db state (no parallel store), function-built options table, category greying with preserved sub-state values, `/tox config` + `/tox state`. **Current sprint.**
+- **Sprint 6b** — options panel (`Options.lua` + embedded AceGUI/AceConfig): GUI as a view over db state (no parallel store), function-built options table, category greying with preserved sub-state values, `/tox config` + `/tox state`.
+- **Sprint 7a** — feature build (`CombatDrop.lua`, `Fuzzy.lua`; extends `Callout.lua`/`PositiveCapture.lua`/`Commands.lua`/`Options.lua`/`ToxFilter.lua`): in-combat silent-drop of pure hostility (slur/harm only, purity guard, `/tox combat`, default on), selectable callout sound (`SOUND_CHOICES` table, `/tox callout sound set/list/preview`), Damerau-1 typo tolerance scoped to positive/callout keyword sets (length-5 floor, role targets exact-only), and TEXT_EMOTE positive capture (enUS-only, `(emote)` marker). Schema v11 (two fields). **Current sprint.**

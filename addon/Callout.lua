@@ -44,6 +44,25 @@ local TINT_CLOSE = "|r"
 local CALLOUT_SOUND_ID      = 8960
 local CALLOUT_SOUND_CHANNEL = "Master"
 
+-- Sprint 7a (F2): selectable callout sound. ONE easily-edited table — id is the
+-- SoundKit constant, name is the slash/GUI key, label is the display string.
+-- IDs are PROVISIONAL: SoundKit ids need in-game audition (Sprint 5 fix proved
+-- documented ids can be silent), so audition via `/tox callout sound preview`
+-- and swap ids here freely; nothing else references the numbers. Labels are
+-- low-affect and pass the tonal grep.
+local SOUND_CHOICES = {
+    { id = 8960,  name = "readycheck",  label = "Ready check" },        -- default; known audible
+    { id = 8959,  name = "readycheck2", label = "Ready check, low" },
+    { id = 12867, name = "bosswhisper", label = "Raid boss whisper" },
+    { id = 18019, name = "bnettoast",   label = "Notification chime" },
+    { id = 3081,  name = "mapping",     label = "Map ping" },
+}
+local SOUND_BY_NAME, SOUND_VALID_ID = {}, {}
+for _, c in ipairs(SOUND_CHOICES) do
+    SOUND_BY_NAME[c.name] = c.id
+    SOUND_VALID_ID[c.id]  = c.name
+end
+
 local ROLE_WINDOW = 3
 
 local function db()
@@ -97,6 +116,20 @@ local function classifierAttackPresent(classifier_result)
     return false
 end
 
+-- Sprint 7a (F3): typo tolerance for callout VERBS only. Role targets stay
+-- exact-only (a typo firing the wrong-role callout is the expensive failure), so
+-- a fuzzy verb can fire a callout only alongside a correctly-spelled role anchor
+-- — which sharply bounds false positives. Length floor 5: short verbs (cd, pop,
+-- out, soak, bait, stop, move, stay, hero, lust) stay exact; longer ones
+-- (interrupt, dispel, cooldown, defensives, ...) gain distance-1 tolerance.
+local FUZZY_MINLEN = 5
+local CALLOUT_VERBS_FUZZY = ns.Fuzzy and ns.Fuzzy.bucketize(ns.Patterns.CALLOUT_VERBS, FUZZY_MINLEN) or {}
+
+local function isCalloutVerb(tok)
+    if ns.Patterns.CALLOUT_VERBS[tok] then return true end
+    return ns.Fuzzy and ns.Fuzzy.matches(tok, CALLOUT_VERBS_FUZZY, FUZZY_MINLEN) or false
+end
+
 -- Pure detection. Returns { roles = {...}, span = "..." } or nil. No DB
 -- access; safe to call from the corpus harness without any database stub.
 function Callout.detect(msg, classifier_result)
@@ -129,7 +162,7 @@ function Callout.detect(msg, classifier_result)
         local hi = math.min(n, ridx + ROLE_WINDOW)
         local verb_found = false
         for j = lo, hi do
-            if j ~= ridx and Patterns.CALLOUT_VERBS[tokens[j]] then
+            if j ~= ridx and isCalloutVerb(tokens[j]) then
                 verb_found = true; break
             end
         end
@@ -249,8 +282,42 @@ function Callout.playSoundIfEligible(detection)
     if not g.callout_enabled then return end
     if g.callout_sound == false then return end
     if type(PlaySound) == "function" then
-        pcall(PlaySound, CALLOUT_SOUND_ID, CALLOUT_SOUND_CHANNEL)
+        pcall(PlaySound, Callout.CurrentSoundId(), CALLOUT_SOUND_CHANNEL)
     end
+end
+
+-- Sprint 7a (F2): sound-selection surface, shared by slash and GUI.
+Callout.SOUND_CHOICES = SOUND_CHOICES
+
+-- name -> SoundKit id, or nil for an unknown name.
+function Callout.ResolveSoundName(name)
+    return SOUND_BY_NAME[(name or ""):lower()]
+end
+
+-- The selected SoundKit id, falling back to the default if the stored value is
+-- absent or no longer a valid choice (e.g. an id removed from the table).
+function Callout.CurrentSoundId()
+    local g = db()
+    local id = g and g.callout_sound_id
+    if id and SOUND_VALID_ID[id] then return id end
+    return CALLOUT_SOUND_ID
+end
+
+-- The name of the selected sound (for status readouts).
+function Callout.CurrentSoundName()
+    return SOUND_VALID_ID[Callout.CurrentSoundId()] or "readycheck"
+end
+
+-- Play a named sound once, out of any eligibility gating — used by the slash
+-- `preview` action and the GUI dropdown's set handler. Returns false on an
+-- unknown name so callers can surface a usage hint.
+function Callout.PreviewSound(name)
+    local id = Callout.ResolveSoundName(name)
+    if not id then return false end
+    if type(PlaySound) == "function" then
+        pcall(PlaySound, id, CALLOUT_SOUND_CHANNEL)
+    end
+    return true
 end
 
 -- Sprint 5 fix2: state-mismatch note. AceDB persists explicit non-default

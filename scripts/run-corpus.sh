@@ -20,6 +20,9 @@ REMINDERS_CORPUS_FILE="$PROJECT_ROOT/corpus/sprint5b_gating.lua"
 WARNINGS_CORPUS_FILE="$PROJECT_ROOT/corpus/sprint5c_gating.lua"
 CATEGORY_CORPUS_FILE="$PROJECT_ROOT/corpus/sprint5d_gating.lua"
 SCRUB_CORPUS_FILE="$PROJECT_ROOT/corpus/sprint6_scrub.lua"
+COMBAT_CORPUS_FILE="$PROJECT_ROOT/corpus/sprint7a_combat.lua"
+FUZZY_CORPUS_FILE="$PROJECT_ROOT/corpus/sprint7a_fuzzy.lua"
+EMOTE_CORPUS_FILE="$PROJECT_ROOT/corpus/sprint7a_emote.lua"
 
 if ! command -v lua >/dev/null 2>&1; then
     echo "Error: 'lua' interpreter not found. Install via: sudo apt-get install lua5.1" >&2
@@ -56,6 +59,11 @@ fi
 if [[ ! -f "$SCRUB_CORPUS_FILE" ]]; then
     SCRUB_CORPUS_FILE=""
 fi
+
+# Sprint 7a gating/fuzzy/emote tests are pure Lua too. Missing files acceptable.
+if [[ ! -f "$COMBAT_CORPUS_FILE" ]]; then COMBAT_CORPUS_FILE=""; fi
+if [[ ! -f "$FUZZY_CORPUS_FILE"  ]]; then FUZZY_CORPUS_FILE="";  fi
+if [[ ! -f "$EMOTE_CORPUS_FILE"  ]]; then EMOTE_CORPUS_FILE="";  fi
 
 python3 - "$CORPUS_FILE" "$CORPUS_LUA" <<'PY'
 import json, sys
@@ -136,6 +144,9 @@ local reminders_corpus_file = arg[4]
 local warnings_corpus_file  = arg[5]
 local category_corpus_file  = arg[6]
 local scrub_corpus_file     = arg[7]
+local combat_corpus_file    = arg[8]
+local fuzzy_corpus_file      = arg[9]
+local emote_corpus_file      = arg[10]
 
 -- WoW-API stub: bit library (only bxor needed for FNV-1a), nothing else.
 _G.bit = {
@@ -168,11 +179,14 @@ load_module("Hash.lua")
 load_module("Normalize.lua")
 load_module("Categories.lua")
 load_module("Patterns.lua")
+load_module("Fuzzy.lua")
 load_module("RuleData.lua")
 load_module("Classifier.lua")
 load_module("Rewrite.lua")
 load_module("RuleEngine.lua")
+load_module("CombatDrop.lua")
 load_module("Callout.lua")
+load_module("PositiveCapture.lua")
 load_module("JournalData.lua")
 load_module("TacticReminders.lua")
 load_module("PreDungeonData.lua")
@@ -196,6 +210,9 @@ local stubDB = {
     category_toxfilter_enabled  = true,
     category_uplifter_enabled   = true,
     debug_enabled = false,
+    -- Sprint 7a
+    combat_silent_drop          = true,
+    callout_sound_id            = 8960,
 }
 ns.Database = {
     Get = function() return stubDB end,
@@ -778,6 +795,123 @@ end
 
 end
 end
+
+-- ===== Sprint 7a (F1): in-combat silent-drop gate =====
+-- Runs the real classifier on each input, then checks CombatDrop.eligible
+-- (classification-only) and CombatDrop.shouldDrop (folds in toggle + category +
+-- master) against the stubbed db state per case.
+if combat_corpus_file and combat_corpus_file ~= "" then
+local cbok, cb = pcall(dofile, combat_corpus_file)
+if not cbok or not cb or not cb.cases then
+    print()
+    print("=== Sprint 7a combat corpus: failed to load, skipping ===")
+else
+local t, p, fails = 0, 0, {}
+for _, c in ipairs(cb.cases) do
+    stubDB.enabled                    = c.master
+    stubDB.category_toxfilter_enabled = c.tf
+    stubDB.combat_silent_drop         = c.toggle
+    local result = ns.RuleEngine.classify(c.input)
+    local elig = ns.CombatDrop.eligible(result)
+    local drop = ns.CombatDrop.shouldDrop(result)
+    t = t + 2
+    if elig == c.exp_eligible then p = p + 1 else
+        fails[#fails + 1] = string.format(
+            "  FAIL %s/eligible: got=%s want=%s (cat=%s handling=%s)",
+            c.id, tostring(elig), tostring(c.exp_eligible),
+            tostring(result.category), tostring(result.handling))
+    end
+    if drop == c.exp_drop then p = p + 1 else
+        fails[#fails + 1] = string.format("  FAIL %s/shouldDrop: got=%s want=%s",
+            c.id, tostring(drop), tostring(c.exp_drop))
+    end
+end
+stubDB.enabled = true; stubDB.category_toxfilter_enabled = true; stubDB.combat_silent_drop = true
+print()
+print("=== ToxFilter Sprint 7a combat gating ===")
+print(string.format("Checks:    %d", t))
+print(string.format("Pass:      %d / %d (%.1f%%)", p, t, t > 0 and 100.0 * p / t or 0.0))
+if #fails > 0 then print(); print("Failures:"); for _, l in ipairs(fails) do print(l) end end
+end
+end
+
+-- ===== Sprint 7a (F3): typo tolerance =====
+if fuzzy_corpus_file and fuzzy_corpus_file ~= "" then
+local fzok, fz = pcall(dofile, fuzzy_corpus_file)
+if not fzok or not fz then
+    print()
+    print("=== Sprint 7a fuzzy corpus: failed to load, skipping ===")
+else
+local t, p, fails = 0, 0, {}
+_G.UnitName = function() return "Tester" end   -- stable own-name; won't collide
+stubbedRole = "tank"
+local function detectFor(input)
+    local result = ns.RuleEngine.classify(input)
+    return ns.PositiveCapture.detect(result.normalized_tokens, result.signals), result
+end
+for _, c in ipairs(fz.positive_cases or {}) do
+    t = t + 1
+    local m = detectFor(c.input)
+    if m and (not c.expect_pattern or m.pattern == c.expect_pattern) then p = p + 1 else
+        fails[#fails + 1] = string.format("  FAIL %s: expected fire(%s), got %s",
+            c.id, tostring(c.expect_pattern), m and m.pattern or "nil")
+    end
+end
+for _, c in ipairs(fz.negative_cases or {}) do
+    t = t + 1
+    local m = detectFor(c.input)
+    if not m then p = p + 1 else
+        fails[#fails + 1] = string.format("  FAIL %s: expected nil, got pattern=%s", c.id, m.pattern)
+    end
+end
+for _, c in ipairs(fz.classifier_cases or {}) do
+    t = t + 2
+    local result = ns.RuleEngine.classify(c.input)
+    if result.handling == c.exp_handling then p = p + 1 else
+        fails[#fails + 1] = string.format("  FAIL %s/handling: got=%s want=%s",
+            c.id, result.handling, c.exp_handling)
+    end
+    local m = ns.PositiveCapture.detect(result.normalized_tokens, result.signals)
+    if not m then p = p + 1 else
+        fails[#fails + 1] = string.format("  FAIL %s/not-captured: got pattern=%s", c.id, m.pattern)
+    end
+end
+_G.UnitName = nil; stubbedRole = nil
+print()
+print("=== ToxFilter Sprint 7a typo tolerance ===")
+print(string.format("Checks:    %d", t))
+print(string.format("Pass:      %d / %d (%.1f%%)", p, t, t > 0 and 100.0 * p / t or 0.0))
+if #fails > 0 then print(); print("Failures:"); for _, l in ipairs(fails) do print(l) end end
+end
+end
+
+-- ===== Sprint 7a (F4): emote parsing (emoteDetect logic only) =====
+if emote_corpus_file and emote_corpus_file ~= "" then
+local emok, em = pcall(dofile, emote_corpus_file)
+if not emok or not em then
+    print()
+    print("=== Sprint 7a emote corpus: failed to load, skipping ===")
+else
+local t, p, fails = 0, 0, {}
+for _, c in ipairs(em.positive_cases or {}) do
+    t = t + 1
+    if ns.PositiveCapture.emoteDetect(c.text) then p = p + 1 else
+        fails[#fails + 1] = string.format("  FAIL %s: expected fire, got nil ('%s')", c.id, c.text)
+    end
+end
+for _, c in ipairs(em.negative_cases or {}) do
+    t = t + 1
+    if not ns.PositiveCapture.emoteDetect(c.text) then p = p + 1 else
+        fails[#fails + 1] = string.format("  FAIL %s: expected nil, got fire ('%s')", c.id, c.text)
+    end
+end
+print()
+print("=== ToxFilter Sprint 7a emote parsing ===")
+print(string.format("Checks:    %d", t))
+print(string.format("Pass:      %d / %d (%.1f%%)", p, t, t > 0 and 100.0 * p / t or 0.0))
+if #fails > 0 then print(); print("Failures:"); for _, l in ipairs(fails) do print(l) end end
+end
+end
 LUA
 
-lua "$HARNESS_LUA" "$ADDON_DIR" "$CORPUS_LUA" "$CALLOUT_CORPUS_LUA" "$REMINDERS_CORPUS_FILE" "$WARNINGS_CORPUS_FILE" "$CATEGORY_CORPUS_FILE" "$SCRUB_CORPUS_FILE"
+lua "$HARNESS_LUA" "$ADDON_DIR" "$CORPUS_LUA" "$CALLOUT_CORPUS_LUA" "$REMINDERS_CORPUS_FILE" "$WARNINGS_CORPUS_FILE" "$CATEGORY_CORPUS_FILE" "$SCRUB_CORPUS_FILE" "$COMBAT_CORPUS_FILE" "$FUZZY_CORPUS_FILE" "$EMOTE_CORPUS_FILE"

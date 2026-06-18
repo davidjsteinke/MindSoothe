@@ -101,9 +101,15 @@ Live surfacing is asymmetric: a stat is shown only when reassuring (wipe rate �
 - `/tox callout on|off` — master toggle for the entire feature. Off by default; opt-in.
 - `/tox callout ui on|off` — visual sub-toggle. When a message contains a tactical callout addressed to your effective role, the chat line is wrapped in a warm-amber color tint.
 - `/tox callout sound on|off` — audio sub-toggle. Plays a subtle UI cue at the same moment. The two sub-toggles are independent for users in voice chat who want one but not the other.
+- `/tox callout sound set <name> | list | preview <name>` (Sprint 7a) — choose among a few built-in cues. `list` shows the choices, `preview` plays one once, `set` selects it (and previews it). Default is the ready-check cue.
 - Sub-toggles persist independently of the master across sessions, so re-enabling the master after sub-toggles were turned off may produce no visible/audible callouts. `/tox callout` shows current state for all three.
 - Callouts fire during combat-pause windows too. Sprint 4b's passive positive-moment highlight pauses during combat (those moments can be reviewed later); callouts are time-critical and stay active.
 - Co-occurrence: a message that's both a positive moment and a callout for your role shows the callout amber tint (not the positive green). The moment is still captured to buffer.
+
+**Sprint 7a additions:**
+- `/tox combat on|off` — in-combat silent-drop (default on). During the combat pause the filter otherwise passes everything through; with this on, high-confidence pure hostility (slurs, harm) is silent-dropped while paused. Anything with tactical or informational content passes through untouched. Matching messages vanish with no indication. Gated by the ToxFilter category and the master toggle.
+- Typo tolerance: the positive-capture and callout keyword matching tolerates a single-character typo ("thansk tank" still registers). Applies only to those keyword sets — never to the hostility classifier, rule engine, blacklist, or whitelist. Short words and role names stay exact-match-only.
+- Emote capture: `/thanks`, `/cheer`, `/salute` and similar emotes aimed at you are captured as positive moments, marked `(emote)` in `/tox positive`. `/thanks` and `/cheer` are also captured when sent untargeted (to the room); other emotes must be aimed at you. Respects the Uplifter category like typed praise. **Limitation: emote detection is English-client (enUS) only** — it keys on English emote wording, so other locales will not capture emotes. A future locale pass would address this.
 
 **Ready (Sprint 4b):**
 - `/tox ready` — chain grounding → breathing → lift in your configured order. Each step's natural completion advances the chain. If invoked during combat, the breathing step is skipped (with a message) and the chain proceeds.

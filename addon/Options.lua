@@ -53,12 +53,37 @@ local CATEGORY_ORDER = {
     "harassment", "harm_invocation", "general_hostility",
 }
 
+-- DISPLAY-ONLY labels for the handling controls. Keys stay the raw lowercase
+-- underscore tokens used by g.handling[cat], the /tox handle <category> path, and
+-- the classifier; only the AceConfig control `name` (the visible label) is
+-- prettified. Never use these as keys or stored values.
+local CATEGORY_LABELS = {
+    identity_attack   = "Identity attack",
+    slur              = "Slur",
+    role_attack       = "Role attack",
+    harassment        = "Harassment",
+    harm_invocation   = "Harm invocation",
+    general_hostility = "General hostility",
+}
+
 local HANDLING_VALUES  = { default = "default", pass = "pass", edit = "edit",
                           del = "del", silent = "silent" }
 local HANDLING_SORTING = { "default", "pass", "edit", "del", "silent" }
 
-local ROLE_VALUES  = { auto = "auto", tank = "tank", healer = "healer", dps = "dps" }
+-- DISPLAY-ONLY labels: the table KEYS (auto/tank/healer/dps) are the stored role
+-- tokens AceConfig writes via get/set; only the label strings are capitalized.
+-- The slash path (/tox role tank), classifier role matching, and stored g.role
+-- all stay lowercase.
+local ROLE_VALUES  = { auto = "Auto", tank = "Tank", healer = "Healer", dps = "DPS" }
 local ROLE_SORTING = { "auto", "tank", "healer", "dps" }
+
+-- Display-only capitalization for the "Effective role:" readout. GetEffectiveRole
+-- still resolves the lowercase token; only the rendered string changes.
+local ROLE_DISPLAY = { tank = "Tank", healer = "Healer", dps = "DPS", auto = "Auto" }
+local function roleDisplay(token)
+    if not token then return "Unknown" end
+    return ROLE_DISPLAY[token] or (token:sub(1, 1):upper() .. token:sub(2))
+end
 
 local STEP_VALUES  = { grounding = "grounding", breathing = "breathing", lift = "lift" }
 local STEP_SORTING = { "grounding", "breathing", "lift" }
@@ -71,6 +96,19 @@ local function toxfilterDisabled()
 end
 local function uplifterDisabled()
     return not (ns.Category and ns.Category.isEnabled("uplifter"))
+end
+
+-- Sprint 7a (F2): callout-sound dropdown values, keyed by internal name -> label.
+-- Built from the single Callout.SOUND_CHOICES table so adding/swapping a choice
+-- there flows through to the GUI with no edit here.
+local function calloutSoundValues()
+    local v = {}
+    if ns.Callout and ns.Callout.SOUND_CHOICES then
+        for _, c in ipairs(ns.Callout.SOUND_CHOICES) do
+            v[c.name] = c.label
+        end
+    end
+    return v
 end
 
 -- ===== Dynamic list editors (blacklist / whitelist / grounding) =====
@@ -167,8 +205,11 @@ end
 local function statusText()
     local g = db()
     if not g then return "Settings not loaded." end
+    -- The enable checkbox already shows master state, so it is not repeated here.
+    -- The conditional notes below (paused, all-pass) are kept — they surface state
+    -- the checkbox does not.
     local paused = ns.ToxFilterState and ns.ToxFilterState.isPaused()
-    local parts = { "Master: " .. (g.enabled and "on" or "off") }
+    local parts = {}
     if paused then parts[#parts + 1] = "paused (combat window)" end
     if ns.Database and ns.Database:AllCategoriesPass() then
         parts[#parts + 1] = "every category set to pass (filtering effectively off)"
@@ -185,14 +226,14 @@ local function buildOptions()
     -- ----- Handling dropdowns -----
     local handlingArgs = {
         header = { type = "description", order = 0,
-                   name = "Per-category handling. 'default' clears the override."
-                       .. " Silent drop hides messages without indication.", fontSize = "medium" },
+                   name = "Set how each category is handled. 'default' uses the built-in"
+                       .. " setting. 'silent' hides messages with no indication.", fontSize = "medium" },
     }
     for i, cat in ipairs(CATEGORY_ORDER) do
         handlingArgs[cat] = {
             type    = "select",
             order   = i,
-            name    = cat,
+            name    = CATEGORY_LABELS[cat] or cat,
             values  = HANDLING_VALUES,
             sorting = HANDLING_SORTING,
             get     = function()
@@ -242,7 +283,8 @@ local function buildOptions()
     -- ----- Ready chain (include toggles + order selects) -----
     local readyArgs = {
         inchdr = { type = "description", order = 0,
-                   name = "Steps included in /tox ready, in order.", fontSize = "medium" },
+                   name = "The /tox ready sequence. Choose which steps run, and in what order.",
+                   fontSize = "medium" },
     }
     for i, step in ipairs(READY_STEPS) do
         readyArgs["inc_" .. step] = {
@@ -297,7 +339,7 @@ local function buildOptions()
         name        = "ToxFilter",
         childGroups = "tab",
         args = {
-            -- ===== General =====
+            -- ===== General (master + categories + role, merged) =====
             general = {
                 type = "group", order = 1, name = "General",
                 args = {
@@ -305,7 +347,7 @@ local function buildOptions()
                         type  = "toggle",
                         order = 1,
                         name  = "Enable ToxFilter",
-                        desc  = "Addon-wide master. Off is a true kill switch (same as /tox off).",
+                        desc  = "Master switch for the whole addon. Off turns everything off (same as /tox off).",
                         get   = function() local gg = db(); return gg and gg.enabled end,
                         set   = function(_, val) local gg = db(); if gg then gg.enabled = val end; notify() end,
                     },
@@ -313,40 +355,60 @@ local function buildOptions()
                         type = "description", order = 2, name = function() return statusText() end,
                         fontSize = "medium",
                     },
-                },
-            },
-
-            -- ===== Categories =====
-            categories = {
-                type = "group", order = 2, name = "Categories",
-                args = {
-                    hdr = { type = "description", order = 0,
-                        name = "Category masters sit above the per-feature toggles."
-                            .. " Turning one off greys its tab but preserves the"
-                            .. " per-feature values for when it is turned back on.",
-                        fontSize = "medium" },
-                    toxfilter = {
-                        type = "toggle", order = 1, name = "ToxFilter (chat hygiene)",
-                        desc = "Rule-engine handling, blacklist/whitelist, surgical rewrite, test fixtures.",
-                        get  = function() return ns.Category and ns.Category.isEnabled("toxfilter") end,
-                        set  = function(_, val)
-                            local gg = db(); if gg then gg.category_toxfilter_enabled = val end; notify()
-                        end,
+                    categories = {
+                        type = "group", order = 10, name = "Categories", inline = true,
+                        args = {
+                            hdr = { type = "description", order = 0,
+                                name = "Turning a category off greys its tab. Your settings"
+                                    .. " are kept for when you turn it back on.",
+                                fontSize = "medium" },
+                            toxfilter = {
+                                type = "toggle", order = 1, name = "ToxFilter (chat hygiene)",
+                                desc = "Rule-engine handling, blacklist and whitelist, surgical rewrite,"
+                                    .. " test fixtures.",
+                                get  = function() return ns.Category and ns.Category.isEnabled("toxfilter") end,
+                                set  = function(_, val)
+                                    local gg = db(); if gg then gg.category_toxfilter_enabled = val end; notify()
+                                end,
+                            },
+                            uplifter = {
+                                type = "toggle", order = 2, name = "Uplifter (confidence)",
+                                desc = "Positive capture, highlight, callouts, reminders, warnings,"
+                                    .. " and stats surfacing.",
+                                get  = function() return ns.Category and ns.Category.isEnabled("uplifter") end,
+                                set  = function(_, val)
+                                    local gg = db(); if gg then gg.category_uplifter_enabled = val end; notify()
+                                end,
+                            },
+                        },
                     },
-                    uplifter = {
-                        type = "toggle", order = 2, name = "Uplifter (confidence)",
-                        desc = "Positive capture, highlight, callouts, reminders, warnings, stats surfacing.",
-                        get  = function() return ns.Category and ns.Category.isEnabled("uplifter") end,
-                        set  = function(_, val)
-                            local gg = db(); if gg then gg.category_uplifter_enabled = val end; notify()
-                        end,
+                    role = {
+                        type = "group", order = 20, name = "Role", inline = true,
+                        args = {
+                            -- name "" so the "Role" group header is the only heading;
+                            -- the dropdown sits under it without a second label.
+                            role = {
+                                type = "select", order = 1, name = "",
+                                desc = "Auto uses spec detection.",
+                                values = ROLE_VALUES, sorting = ROLE_SORTING,
+                                get = function() local gg = db(); return gg and gg.role or "auto" end,
+                                set = function(_, v) local gg = db(); if gg then gg.role = v end end,
+                            },
+                            effective = {
+                                type = "description", order = 2,
+                                name = function()
+                                    local eff = ns.Database and ns.Database:GetEffectiveRole()
+                                    return "Effective role: " .. roleDisplay(eff)
+                                end,
+                            },
+                        },
                     },
                 },
             },
 
             -- ===== ToxFilter family (greyed when category off) =====
             toxfilter = {
-                type = "group", order = 3, name = "ToxFilter",
+                type = "group", order = 2, name = "ToxFilter",
                 args = {
                     channels = {
                         type = "group", order = 1, name = "Channels", inline = true,
@@ -362,7 +424,7 @@ local function buildOptions()
                                 get = function() return g.channels and g.channels.battleground end,
                                 set = function(_, v) setChannel("battleground", v) end },
                             whisper = { type = "toggle", order = 4, name = "Whisper",
-                                desc = "Off by default. Reads private 1:1 messages; output shown only to you.",
+                                desc = "Off by default. Reads private 1:1 messages; output is shown only to you.",
                                 get = function() return g.channels and g.channels.whisper end,
                                 set = function(_, v) setChannel("whisper", v) end },
                         },
@@ -374,12 +436,22 @@ local function buildOptions()
                     },
                     blacklist = listGroup("blacklist", "Blacklist", 3),
                     whitelist = listGroup("whitelist", "Whitelist", 4),
+                    combat = {
+                        type = "toggle", order = 5, width = "full",
+                        name = "Silent-drop pure hostility during boss combat",
+                        desc = "During the combat pause, high-confidence pure hostility"
+                            .. " (slurs, harm) is dropped silently; everything else passes"
+                            .. " through untouched. Matching messages vanish with no indication.",
+                        disabled = toxfilterDisabled,
+                        get = function() return g.combat_silent_drop end,
+                        set = function(_, v) local gg = db(); if gg then gg.combat_silent_drop = v end end,
+                    },
                 },
             },
 
             -- ===== Uplifter family (greyed when category off; grounding excepted) =====
             uplifter = {
-                type = "group", order = 4, name = "Uplifter",
+                type = "group", order = 3, name = "Uplifter",
                 args = {
                     positive = {
                         type = "toggle", order = 1, name = "Positive-moment highlight",
@@ -400,6 +472,18 @@ local function buildOptions()
                             sound = { type = "toggle", order = 3, name = "Sound cue",
                                 get = function() return g.callout_sound end,
                                 set = function(_, v) local gg = db(); if gg then gg.callout_sound = v end end },
+                            soundkit = {
+                                type = "select", order = 4, name = "Sound",
+                                desc = "Selecting a sound plays it once as a preview.",
+                                values = calloutSoundValues,
+                                get = function() return ns.Callout and ns.Callout.CurrentSoundName() end,
+                                set = function(_, name)
+                                    local gg = db()
+                                    local id = ns.Callout and ns.Callout.ResolveSoundName(name)
+                                    if gg and id then gg.callout_sound_id = id end
+                                    if ns.Callout then ns.Callout.PreviewSound(name) end
+                                end,
+                            },
                         },
                     },
                     reminders = {
@@ -418,6 +502,10 @@ local function buildOptions()
                         type = "group", order = 5, name = "Stats surfacing", inline = true,
                         disabled = uplifterDisabled,
                         args = {
+                            note = { type = "description", order = 0,
+                                name = "Shows your success rate at a boss pull when it is"
+                                    .. " encouraging. Stays hidden when the wipe rate is above"
+                                    .. " the threshold.", fontSize = "medium" },
                             surface = { type = "toggle", order = 1, name = "Surface live stats",
                                 get = function() return g.stats_surface end,
                                 set = function(_, v) local gg = db(); if gg then gg.stats_surface = v end end },
@@ -431,6 +519,9 @@ local function buildOptions()
                         type = "group", order = 6, name = "Box breathing", inline = true,
                         disabled = uplifterDisabled,
                         args = {
+                            note = { type = "description", order = 0,
+                                name = "A timed breathing exercise. Set how many cycles and how"
+                                    .. " long each phase lasts.", fontSize = "medium" },
                             cycles = { type = "range", order = 1, name = "Cycles",
                                 min = 1, max = 20, step = 1,
                                 get = function() return g.breathe_cycles or 4 end,
@@ -450,27 +541,6 @@ local function buildOptions()
                         type = "group", order = 8, name = "Grounding items", inline = true,
                         disabled = false,  -- explicitly ungated; overrides nothing but documents intent
                         args = groundingArgs,
-                    },
-                },
-            },
-
-            -- ===== Role (shared plumbing — never greyed) =====
-            role = {
-                type = "group", order = 5, name = "Role",
-                args = {
-                    role = {
-                        type = "select", order = 1, name = "Role",
-                        desc = "auto uses spec detection.",
-                        values = ROLE_VALUES, sorting = ROLE_SORTING,
-                        get = function() local gg = db(); return gg and gg.role or "auto" end,
-                        set = function(_, v) local gg = db(); if gg then gg.role = v end end,
-                    },
-                    effective = {
-                        type = "description", order = 2,
-                        name = function()
-                            local eff = ns.Database and ns.Database:GetEffectiveRole() or "unknown"
-                            return "Effective role: " .. eff
-                        end,
                     },
                 },
             },
