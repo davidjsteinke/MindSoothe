@@ -41,7 +41,10 @@ local TINT_CLOSE = "|r"
 -- audible. PlaySound's "Master" channel routes through master volume per spec.
 -- Lesson: PlaySound IDs from documentation/databases require in-game verification
 -- before locking — the silent-vs-audible distinction isn't always documented.
-local CALLOUT_SOUND_ID      = 8960
+-- Sprint 7a in-game pass: fresh-install default moved to 8959 (READY_CHECK low,
+-- "readycheck2") — a softer cue. This constant is the fallback for an absent /
+-- invalid stored id, so it tracks the DEFAULTS value in Database.lua.
+local CALLOUT_SOUND_ID      = 8959
 local CALLOUT_SOUND_CHANNEL = "Master"
 
 -- Sprint 7a (F2): selectable callout sound. ONE easily-edited table — id is the
@@ -51,8 +54,8 @@ local CALLOUT_SOUND_CHANNEL = "Master"
 -- and swap ids here freely; nothing else references the numbers. Labels are
 -- low-affect and pass the tonal grep.
 local SOUND_CHOICES = {
-    { id = 8960,  name = "readycheck",  label = "Ready check" },        -- default; known audible
-    { id = 8959,  name = "readycheck2", label = "Ready check, low" },
+    { id = 8960,  name = "readycheck",  label = "Ready check" },        -- known audible
+    { id = 8959,  name = "readycheck2", label = "Ready check, low" },   -- default (fresh installs)
     { id = 12867, name = "bosswhisper", label = "Raid boss whisper" },
     { id = 18019, name = "bnettoast",   label = "Notification chime" },
     { id = 3081,  name = "mapping",     label = "Map ping" },
@@ -217,7 +220,8 @@ end
 
 -- Returns true when the user's effective role is in detection.roles.
 -- Defensive on auto-unresolved role (returns false rather than spuriously
--- matching everything).
+-- matching everything). Resolves role LIVE via GetEffectiveRole; only reached on
+-- the out-of-combat display-filter path (callouts do not run during the pause).
 function Callout.matchesUser(detection)
     if not detection or not detection.roles then return false end
     local g = db(); if not g then return false end
@@ -305,7 +309,7 @@ end
 
 -- The name of the selected sound (for status readouts).
 function Callout.CurrentSoundName()
-    return SOUND_VALID_ID[Callout.CurrentSoundId()] or "readycheck"
+    return SOUND_VALID_ID[Callout.CurrentSoundId()] or "readycheck2"
 end
 
 -- Play a named sound once, out of any eligibility gating — used by the slash
@@ -340,6 +344,12 @@ function Callout.GetStateMismatchNote()
         return "Note: audio cue is off. Run /tox callout sound on to enable."
     end
 end
+
+-- Sprint 7a (N12, final): there is NO in-combat callout surface. The chat-line
+-- tint rides the ChatFrame message filter, which Midnight does not invoke during
+-- the combat-restricted window, and in-combat chat text is a secret/tainted value
+-- that no addon can inspect — so callouts are out-of-combat-only. The earlier
+-- RaidWarningFrame in-combat surface (SurfaceCombatCallout) has been removed.
 
 Callout.SOUND_ID      = CALLOUT_SOUND_ID
 Callout.SOUND_CHANNEL = CALLOUT_SOUND_CHANNEL

@@ -915,3 +915,13 @@ end
 LUA
 
 lua "$HARNESS_LUA" "$ADDON_DIR" "$CORPUS_LUA" "$CALLOUT_CORPUS_LUA" "$REMINDERS_CORPUS_FILE" "$WARNINGS_CORPUS_FILE" "$CATEGORY_CORPUS_FILE" "$SCRUB_CORPUS_FILE" "$COMBAT_CORPUS_FILE" "$FUZZY_CORPUS_FILE" "$EMOTE_CORPUS_FILE"
+
+# Sprint 7a N12 pause-dispatch guard. Runs in a SEPARATE Lua process because it
+# loads ToxFilter.lua (the live chatFilter) with its own WoW-API stubs — kept
+# isolated so a load error here can't abort the passes above. This is the test
+# that was missing when N12 escaped twice: it drives the real dispatch with
+# isPaused = true and asserts callouts still tint in combat.
+PAUSE_CORPUS_FILE="$PROJECT_ROOT/corpus/sprint7a_pause.lua"
+if [[ -f "$PAUSE_CORPUS_FILE" ]]; then
+    lua "$PROJECT_ROOT/scripts/pause-dispatch.lua" "$ADDON_DIR" "$PAUSE_CORPUS_FILE"
+fi

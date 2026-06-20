@@ -13,7 +13,7 @@
 local _, ns = ...
 
 local ADDON_NAME = "ToxFilter"
-local VERSION = "0.7.0-sprint7a"
+local VERSION = "0.7.0-sprint7a-fix"
 
 local ToxFilter = LibStub("AceAddon-3.0"):NewAddon(
     ADDON_NAME,
@@ -32,8 +32,16 @@ local CHAT_EVENTS = {
     "CHAT_MSG_RAID_WARNING",
     "CHAT_MSG_INSTANCE_CHAT",
     "CHAT_MSG_INSTANCE_CHAT_LEADER",
-    "CHAT_MSG_BATTLEGROUND",
-    "CHAT_MSG_BATTLEGROUND_LEADER",
+    -- CHAT_MSG_BATTLEGROUND / _LEADER were REMOVED from the WoW API (verified
+    -- against warcraft.wiki.gg). Battleground and other instanced-PvP group chat
+    -- now arrives via CHAT_MSG_INSTANCE_CHAT (above). The old names were silently
+    -- tolerated by ChatFrame_AddMessageEventFilter (the filter just never fired
+    -- for them) but RegisterEvent (Sprint 7a N12's OnCombatChat path) validates
+    -- event names and threw on them, aborting OnEnable before the slash-command
+    -- registration ran — hence "GUI works, /tox dead". The vestigial
+    -- `battleground` channel toggle (db.channels / Options / Commands) is left
+    -- in place for now; BG chat is gated under `instance` via INSTANCE_CHAT. 7b
+    -- should reconcile or retire that toggle.
 }
 
 local WHISPER_EVENT = "CHAT_MSG_WHISPER"
@@ -52,8 +60,8 @@ local EVENT_TO_CHANNEL = {
     CHAT_MSG_RAID_WARNING           = "raid",
     CHAT_MSG_INSTANCE_CHAT          = "instance",
     CHAT_MSG_INSTANCE_CHAT_LEADER   = "instance",
-    CHAT_MSG_BATTLEGROUND           = "battleground",
-    CHAT_MSG_BATTLEGROUND_LEADER    = "battleground",
+    -- (CHAT_MSG_BATTLEGROUND* removed from the API — see CHAT_EVENTS note. BG
+    -- chat now arrives as CHAT_MSG_INSTANCE_CHAT and is gated under `instance`.)
     CHAT_MSG_WHISPER                = "whisper",
 }
 
@@ -101,6 +109,15 @@ local function setPaused(paused)
     end
 end
 
+-- Sprint 7a (N12, final): there is no in-combat chat handler. Midnight delivers
+-- the chat message text to in-combat event handlers as a SECRET/tainted value —
+-- it cannot even be read or compared while execution is tainted in combat
+-- (`attempt to compare local 'msg' (a secret string value...)`). So no addon can
+-- inspect chat during a boss fight; callouts are out-of-combat-only, via the
+-- chat-filter tint path (original Sprint 5 behavior). During the combat pause NO
+-- callout code runs at all. The earlier AceEvent OnCombatChat experiment, its
+-- role cache, and the RaidWarningFrame in-combat surface have all been removed.
+
 -- ===== Chat filter dispatch =====
 
 -- Sprint 5 dispatch order:
@@ -133,10 +150,15 @@ local function chatFilter(_chatFrame, event, msg, ...)
     local db = ns.Database and ns.Database:Get()
     -- Sprint 5 fix diagnostic P1: surface every message that reaches the
     -- filter. Confirms the filter is being invoked for messages 2..N and
-    -- isn't being silently bypassed by some upstream chain edit.
+    -- isn't being silently bypassed by some upstream chain edit. The isPaused
+    -- value is included (Sprint 7a N12 trace): if a callout fails to fire during
+    -- combat, this line answers the first question — is chatFilter even invoked
+    -- during the Midnight restricted window, and does it know it is paused? If
+    -- this line does NOT print while paused, the suppression is upstream of the
+    -- filter (Blizzard's restricted execution), not in the dispatch below.
     if db and db.debug_enabled then
-        print(string.format("[ToxFilter Debug] chatFilter received: '%s' on event %s",
-            msg, tostring(event)))
+        print(string.format("[ToxFilter Debug] chatFilter received: '%s' on event %s (isPaused=%s)",
+            msg, tostring(event), tostring(isPaused)))
     end
     if db then
         if not db.enabled then return false end
@@ -282,6 +304,14 @@ local function chatFilter(_chatFrame, event, msg, ...)
     return false
 end
 
+-- Test-only hooks: expose the live chatFilter and a paused setter so the corpus
+-- harness can drive the REAL dispatch through the combat-pause state. Not
+-- referenced by any production path; pure visibility.
+ns.ToxFilterDispatch = {
+    chatFilter       = chatFilter,
+    setPausedForTest = function(v) isPaused = v and true or false end,
+}
+
 -- ===== Lifecycle =====
 
 local function validateRuleData()
@@ -420,6 +450,14 @@ function ToxFilter:OnInitialize()
 end
 
 function ToxFilter:OnEnable()
+    -- Hardening (Sprint 7a N12 fix): register the slash command FIRST, before any
+    -- RegisterEvent. RegisterEvent throws on an event name the client doesn't
+    -- know (this is exactly how the removed CHAT_MSG_BATTLEGROUND aborted OnEnable
+    -- and took /tox down with it). Registering slash up front means no later
+    -- event-registration failure can ever skip it again — the addon stays
+    -- controllable even if a future client patch invalidates an event name.
+    self:RegisterChatCommand("tox", "OnSlashCommand")
+
     validateRuleData()
 
     for _, event in ipairs(CHAT_EVENTS) do
@@ -436,8 +474,10 @@ function ToxFilter:OnEnable()
     -- Sprint 7a (F4): emote-directed positive capture. Not a chat-frame filter
     -- (we don't modify emotes); a plain event subscription that feeds capture.
     self:RegisterEvent("CHAT_MSG_TEXT_EMOTE",    "OnTextEmote")
-
-    self:RegisterChatCommand("tox", "OnSlashCommand")
+    -- Sprint 7a (N12, final): NO AceEvent subscription on the group CHAT_MSG_*
+    -- channels. In-combat chat is uninspectable — Midnight delivers `msg` as a
+    -- secret/tainted value to in-combat handlers — so there is no in-combat
+    -- callout handler. Callouts ride the out-of-combat chat-filter tint path only.
 
     print("[ToxFilter] Loaded — version " .. VERSION)
     if ns.Callout and ns.Callout.GetStateMismatchNote then
