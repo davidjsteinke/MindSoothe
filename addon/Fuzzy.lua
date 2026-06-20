@@ -14,8 +14,11 @@
 -- one-skip walk. No per-call allocation. Tokens are already lowercased upstream
 -- (Normalize for PositiveCapture, tokenize for Callout) so byte compare is safe.
 --
--- Guards live at the call sites, not here: a length floor (5) and exact-only
--- role targets. This module is pure mechanics.
+-- The length floor (5) is enforced inside matches() on both the input token and
+-- each candidate keyword, so a short token can never fuzzy-match a short keyword
+-- (even one left in an unfiltered bucket). Exact-only role targets are a separate
+-- call-site guard (Callout/PositiveCapture never fuzz role anchors). This module
+-- is otherwise pure mechanics.
 
 local _, ns = ...
 
@@ -86,9 +89,16 @@ function Fuzzy.bucketize(set, minlen)
     return byLen
 end
 
--- True if token (length >= minlen) is within distance 1 of any bucketized
--- keyword. Only lengths len-1, len, len+1 can be within 1, so only those are
--- scanned.
+-- True if token is within distance 1 of any bucketized keyword. The length
+-- floor is enforced on BOTH ends here: the input token (lt < minlen) and each
+-- candidate keyword (#cand < minlen). bucketize() already drops sub-minlen
+-- keywords at load, so the per-candidate check is normally redundant — but
+-- keeping it local to matches() makes the both-ends invariant self-contained:
+-- a caller that passes an unfiltered bucket can still never fuzzy-match a short
+-- keyword. This is the guard the role noun "tank"(4) relies on — it lives in
+-- POS_PLAYS but must stay exact-only, so its distance-1 neighbours ("rank",
+-- "task", "tans") never capture (Sprint 7a in-game pass, N16). Only lengths
+-- len-1, len, len+1 can be within 1, so only those buckets are scanned.
 function Fuzzy.matches(token, buckets, minlen)
     local lt = #token
     if lt < minlen then return false end
@@ -96,7 +106,8 @@ function Fuzzy.matches(token, buckets, minlen)
         local list = buckets[lt + d]
         if list then
             for i = 1, #list do
-                if within1(token, list[i]) then return true end
+                local cand = list[i]
+                if #cand >= minlen and within1(token, cand) then return true end
             end
         end
     end

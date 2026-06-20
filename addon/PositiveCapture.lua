@@ -258,13 +258,6 @@ end
 local EMOTE_VERBS = set({ "thank", "thanks", "cheer", "cheers", "salute", "salutes" })
 local EMOTE_SELF  = set({ "you", "your" })
 
--- The two emotes captured even when untargeted: /thanks and /cheer. Any verb in
--- EMOTE_VERBS still captures when aimed at the player (verb + "you"/"your"), but
--- only these "broadcast" verbs also count when sent to the room with no target
--- ("Bob cheers.", "Bob thanks everyone."). /salute and the rest stay targeted-
--- only — an untargeted salute is ambient, not directed praise.
-local BROADCAST_VERBS = set({ "thank", "thanks", "cheer", "cheers" })
-
 -- Lowercase + split on non-letters. "Bob thanks you." -> {bob, thanks, you}.
 local function emoteTokenize(text)
     local out = {}
@@ -274,28 +267,26 @@ local function emoteTokenize(text)
     return out
 end
 
--- Returns a match table when the rendered emote text is a positive emote.
--- Two ways to match:
---   1. Aimed at the player: any EMOTE_VERBS verb + a self-target ("you"/"your").
---      Covers "Bob thanks you.", "Carol salutes you.", "Dave cheers at you.".
---   2. Untargeted /thanks or /cheer (BROADCAST_VERBS): the verb with no "at"
---      target — "Bob cheers.", "Bob thanks everyone." A trailing "at <name>"
---      means it was aimed at someone else ("Bob cheers at Carol.") and is left
---      to rule 1, so a third-party emote without "you" stays uncaptured.
--- /salute and other verbs still need rule 1's self-target; an untargeted salute
--- is ambient, not directed praise. Pure function; exported for the corpus harness.
+-- Returns a match table only when the rendered emote text is aimed at the
+-- player: an EMOTE_VERBS verb AND a self-target token ("you"/"your"). Covers
+-- "Bob thanks you.", "Carol salutes you.", "Dave cheers at you.".
+--
+-- Sprint 7a in-game pass (N22): untargeted emotes do NOT capture. "Bob cheers."
+-- and "Bob thanks everyone." carry no self-target token, so they are ignored —
+-- a positive moment is something another player directed AT you, and an
+-- untargeted emote is ambient, not directed praise. (An earlier 7a draft also
+-- captured untargeted /thanks and /cheer via a "broadcast verb" rule; that rule
+-- is removed.) Third-party emotes ("Bob cheers at Carol.", N23) likewise lack a
+-- self-target token and stay uncaptured. Pure function; exported for the harness.
 local function emoteDetect(text)
     if type(text) ~= "string" or text == "" then return nil end
     local toks = emoteTokenize(text)
-    local verb, selfref, broadcast, hasAt = false, false, false, false
+    local verb, selfref = false, false
     for i = 1, #toks do
-        if EMOTE_VERBS[toks[i]]     then verb = true end
-        if BROADCAST_VERBS[toks[i]] then broadcast = true end
-        if EMOTE_SELF[toks[i]]      then selfref = true end
-        if toks[i] == "at"          then hasAt = true end
+        if EMOTE_VERBS[toks[i]] then verb = true end
+        if EMOTE_SELF[toks[i]]  then selfref = true end
     end
     if verb and selfref then return { pattern = "emote" } end
-    if broadcast and not hasAt then return { pattern = "emote" } end
     return nil
 end
 

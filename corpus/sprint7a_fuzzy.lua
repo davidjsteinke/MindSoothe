@@ -30,6 +30,23 @@ return {
         -- the length floor so it is never fuzzed — and no thanks/callout token is
         -- present, so "goed kick" yields nothing.
         { id = "short_word_floor",      input = "goed kick"   },
+
+        -- N16 (Sprint 7a in-game): "rank"/"task"/"tans" are 4-char distance-1
+        -- neighbours of the ROLE NOUN "tank", which lives in POS_PLAYS. The
+        -- length-5 floor (enforced on both the input token AND the candidate
+        -- keyword) keeps "tank" out of every fuzzed set, so these must NOT
+        -- capture as standalone tokens. The original short_word_floor case only
+        -- exercised a keyword ("good") that was ALSO sub-floor; it never covered
+        -- a short input against a keyword that genuinely sits in a fuzzed set —
+        -- this is that coverage.
+        { id = "tank_neighbour_rank",   input = "rank"        },
+        { id = "tank_neighbour_task",   input = "task"        },
+        { id = "tank_neighbour_tans",   input = "tans"        },
+        -- Same neighbours as the second token of a would-be compliment_play
+        -- ("nice <play>"): the verb is exact, but the play-noun is a sub-floor
+        -- typo of "tank" and must not fuzzy-match, so no compliment fires.
+        { id = "tank_neighbour_in_play_rank", input = "nice rank" },
+        { id = "tank_neighbour_in_play_task", input = "good task" },
     },
 
     -- classify() must stay "pass" on a distance-1 slur variant: proof the

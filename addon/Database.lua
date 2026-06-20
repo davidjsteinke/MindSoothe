@@ -76,10 +76,12 @@ local DEFAULTS = {
         callout_ui      = true,
         callout_sound   = true,
 
-        -- Sprint 7a (F2): selectable callout sound. SoundKit id; default 8960
-        -- (READY_CHECK), the Sprint 5-fix locked default. Choices live in
+        -- Sprint 7a (F2): selectable callout sound. SoundKit id; default 8959
+        -- (READY_CHECK low, "readycheck2"). Fresh-install default only — the
+        -- migrations[11] backfill below still seeds 8960 for v10→v11 upgraders so
+        -- existing users keep their current cue (no schema bump). Choices live in
         -- Callout.SOUND_CHOICES; the panel/slash write the id here.
-        callout_sound_id = 8960,
+        callout_sound_id = 8959,
 
         -- Sprint 7a (F1): in-combat silent-drop. DEFAULT ON. During the combat
         -- pause, high-confidence pure hostility (slur, harm_invocation) is
