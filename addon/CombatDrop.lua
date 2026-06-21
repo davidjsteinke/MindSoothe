@@ -1,22 +1,30 @@
--- Sprint 7a: in-combat silent-drop gate. During the Midnight combat pause the
--- filter passes everything through (Section G) with the existing read-only
--- callout carve-out. This adds ONE more carve-out: high-confidence pure hostility
--- is silent-dropped while paused. Rationale: a rewrite mistake in combat is
--- expensive, but a message with zero information content costs nothing to drop.
+-- Sprint 7a: silent-drop classification gate (CURRENTLY INERT — see N12 below).
+-- shouldDrop was intended to add ONE carve-out to chatFilter's paused branch:
+-- high-confidence pure hostility silent-dropped while paused. Rationale: a rewrite
+-- mistake in combat is expensive, but a message with zero information content
+-- costs nothing to drop.
+--
+-- NOTE (N12): chatFilter's paused branch is never invoked in combat (the filter
+-- does not run, and in-combat chat text is a secret/tainted value), and shouldDrop
+-- is wired ONLY into that paused branch (ToxFilter.lua) — not the non-paused path.
+-- So this carve-out has no runtime effect today: dead in combat, absent out of
+-- combat. The module and its toggle are retained for the pause-dispatch guard and
+-- a possible future non-paused home. The classification gate below is still
+-- correct and corpus-tested.
 --
 -- The gate errs narrow. A message qualifies only when ALL hold:
 --   1. Winning category is in CATEGORIES — the two rule-data-driven, near-zero-
 --      information categories (slur, harm_invocation). identity_attack is
 --      deliberately excluded: its rule coverage is sparse, and sparse + silent +
---      combat is the worst place for a false drop. Editable here, revisit 7b.
+--      combat is the worst place for a false drop. Editable here.
 --   2. handling ~= "pass" (it actually flagged).
 --   3. Purity: no token carries the "tactical" label. ANY tactical/informational
 --      content makes the message pass through untouched. "move out of fire <slur>"
 --      keeps its fire/move/out tactical labels -> not pure -> passes.
 --
--- shouldDrop also folds in the new toggle (db.combat_silent_drop) and the
--- ToxFilter category gate (which includes the addon master). It's chat-hygiene
--- handling, so it rides the ToxFilter family, not Uplifter.
+-- shouldDrop also folds in the toggle (db.combat_silent_drop) and the ToxFilter
+-- category gate (which includes the addon master). It's chat-hygiene handling, so
+-- it rides the ToxFilter family, not Uplifter.
 --
 -- Pure read; never writes. Safe for the corpus harness — it drives shouldDrop
 -- directly off RuleEngine.classify output.

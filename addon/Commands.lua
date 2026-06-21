@@ -59,13 +59,9 @@ function Commands.status()
         return
     end
     if isPaused() then
-        -- Sprint 7a (F1): note the silent-drop carve-out when it's active, so the
-        -- pause line doesn't read as "everything passes through".
-        if g.combat_silent_drop and ns.Category and ns.Category.gate("toxfilter") then
-            out("Paused — combat window (silent-drop active)")
-        else
-            out("Paused — combat window")
-        end
+        -- Sprint 7b (N12): the F1 silent-drop carve-out is inert (paused branch is
+        -- never invoked in combat), so the pause line carries no silent-drop note.
+        out("Paused — combat window")
         return
     end
     if not g.enabled then
@@ -99,27 +95,25 @@ function Commands.off()
     out("Filtering disabled.")
 end
 
--- Sprint 7a (F1): in-combat silent-drop toggle. No-arg shows state (mirrors
--- /tox callout / /tox reminders). The wording is scoped to match the GUI label
--- so "combat: on" can't be read as a general combat-window switch — it only
--- silent-drops pure hostility (slurs, harm) during boss combat; everything else
--- passes through untouched while paused.
-local COMBAT_SILENT_NOTE = "Note: matching messages vanish with no indication."
+-- Sprint 7a (F1) / 7b (N12): the combat silent-drop toggle. The carve-out it
+-- gates lives only in chatFilter's paused branch, which the game never invokes in
+-- combat (N12), and it is not wired into the non-paused path — so the toggle has
+-- no current effect. Kept (DEFAULT ON) for a possible future out-of-combat home.
+-- No-arg shows state (mirrors /tox callout / /tox reminders).
 function Commands.combat(rest)
     local g = db(); if not g then return end
     local sub = (rest:match("^(%S*)") or ""):lower()
 
     if sub == "" then
         out("Combat silent-drop: " .. (g.combat_silent_drop and "on" or "off")
-            .. ". Silent-drops pure hostility (slurs, harm) during boss combat;"
-            .. " nothing else is touched while paused.")
-        if g.combat_silent_drop then out(COMBAT_SILENT_NOTE) end
+            .. " (no current effect). The carve-out runs only during the combat"
+            .. " pause, which the game does not invoke, so nothing is dropped."
+            .. " Kept for a possible future out-of-combat home.")
         return
     end
     if sub == "on" then
         g.combat_silent_drop = true
-        out("Combat silent-drop enabled.")
-        out(COMBAT_SILENT_NOTE)
+        out("Combat silent-drop enabled (no current effect; see /tox combat).")
         return
     end
     if sub == "off" then
@@ -391,9 +385,7 @@ function Commands.list()
     print(string.format("    %-12s %s", "uplifter",
         ns.Category and ns.Category.isEnabled("uplifter") and "on" or "off"))
     if isPaused() then
-        local suffix = (g.combat_silent_drop and ns.Category and ns.Category.gate("toxfilter"))
-            and " (silent-drop active)" or ""
-        print("  state:            paused (combat window)" .. suffix)
+        print("  state:            paused (combat window)")
     elseif ns.Database:AllCategoriesPass() then
         print("  state:            soft-disabled (every category set to pass)")
     end
@@ -528,14 +520,12 @@ local HELP_COMMANDS = {
     off       = "/tox off — disable filtering globally."
              .. " Rule engine still runs for /tox test/classify/rewrite.",
     status    = "/tox status — Active, Disabled, or Paused (combat window)."
-             .. " Notes the in-combat silent-drop carve-out when active,"
-             .. " and a category master that is off.",
-    combat    = "/tox combat — show the in-combat silent-drop state."
-             .. " /tox combat on||off toggles it (default on)."
-             .. " When on, high-confidence pure hostility (slurs, harm) is"
-             .. " silent-dropped during boss combat; everything else passes"
-             .. " through untouched while paused. Matching messages vanish with"
-             .. " no indication. Gated by the ToxFilter category and the master.",
+             .. " Notes a category master that is off.",
+    combat    = "/tox combat — show the combat silent-drop toggle state."
+             .. " /tox combat on||off toggles it (default on), but it currently"
+             .. " has no effect: the carve-out runs only during the combat pause,"
+             .. " which the game does not invoke. Kept for a possible future"
+             .. " out-of-combat home.",
     category  = "/tox category — show both category master states."
              .. " /tox category toxfilter on||off gates the chat-hygiene family"
              .. " (filtering, handling, blacklist, rewrite, test fixtures)."

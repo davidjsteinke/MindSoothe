@@ -94,6 +94,22 @@ local function stripRealmSuffix(token)
     return token:match("^([^-]+)") or token
 end
 
+-- Sprint 7b bugfix: a positive moment is something someone ELSE directed at the
+-- user. The user's own outgoing praise ("thanks dingles"), echoed back through
+-- the group CHAT_MSG_* events, must never be recorded — and, per the tint
+-- decision in chatFilter, must not be tinted either. isSelfSender compares the
+-- CHAT_MSG_* author against UnitName("player"), realm-suffix-stripped and
+-- case-insensitive. Shared by the typed-praise path (capture) and the emote path
+-- (captureEmote); also exported so chatFilter can apply the same skip to tint.
+local function isSelfSender(sender)
+    if not sender or type(UnitName) ~= "function" then return false end
+    local me = UnitName("player")
+    if not me then return false end
+    me = (me:match("^([^-]+)") or me):lower()
+    local s = (sender:match("^([^-]+)") or sender):lower()
+    return me == s
+end
+
 local function dbg(fmt, ...)
     local g = ns.Database and ns.Database:Get() or nil
     if not g or not g.debug_enabled then return end
@@ -238,6 +254,23 @@ local function capture(msg, classifier_result, event, sender)
         return nil
     end
 
+    -- Record narrowing (Sprint 7b bugfix). detect() is intentionally broad — it
+    -- also fires on bare room-positivity ("ty", "gg") and praise aimed at other
+    -- roles/players (direct=false) — so the chat-line tint can stay broad. The
+    -- RECORD decision narrows here, mirroring the emote path's two guards:
+    --   * directed-at-user — match.direct (a role match for the user's own role,
+    --     or the user's own name as the target). Bare thanks / compliment /
+    --     callout and praise aimed elsewhere are direct=false → not recorded.
+    --   * not-own-message — isSelfSender skips the user's echoed outgoing praise
+    --     (the "thanks dingles" leak), even when it role-matches the user.
+    -- Precision over recall: when unsure, do not record. The tint stays broad in
+    -- chatFilter, which keeps a separate (detect-based) decision.
+    if not match.direct or isSelfSender(sender) then
+        dbg("PositiveCapture.capture: detected but not direct-to-user/own message — not recorded (direct=%s self=%s)",
+            tostring(match.direct), tostring(isSelfSender(sender)))
+        return nil
+    end
+
     if not (ns.Buffer and ns.Buffer.RecordPositiveMoment) then return nil end
     -- Sprint 6: sender (CHAT_MSG_* author) flows to the scrubber for best-effort
     -- name stripping of the stored body.
@@ -291,24 +324,35 @@ local function emoteDetect(text)
 end
 
 -- Your own outgoing emote ("You thank Bob.") also fires CHAT_MSG_TEXT_EMOTE and
--- contains both a verb and "you" (as subject, not target). Skip it: a moment is
--- something someone ELSE directed at you. Realm-suffix-stripped, case-insensitive.
-local function isSelfSender(sender)
-    if not sender or type(UnitName) ~= "function" then return false end
-    local me = UnitName("player")
-    if not me then return false end
-    me = (me:match("^([^-]+)") or me):lower()
-    local s = (sender:match("^([^-]+)") or sender):lower()
-    return me == s
-end
+-- contains both a verb and "you" (as subject, not target). isSelfSender (hoisted
+-- above, shared with the typed-praise path) skips it: a moment is something
+-- someone ELSE directed at you.
 
 -- Capture a targeted positive emote as a positive moment. Respects the Uplifter
 -- category gate + addon master exactly like typed-thanks capture. The rendered
 -- text passes through PIIScrub (sender threaded) like any capture, so the
 -- sender's name in "<Name> thanks you." is scrubbed. direct_to_user = true so it
 -- increments the same thanks/positive counters as typed praise.
-local function captureEmote(text, sender)
-    if type(text) ~= "string" or text == "" then return nil end
+--
+-- Post-7a taint fix. CHAT_MSG_TEXT_EMOTE also fires for NPC / system / boss
+-- emotes (seen in-game on a Delve completion and on closing a vendor) — never
+-- praise directed at the user, and whose rendered text can arrive as a
+-- secret/tainted value in a restricted-execution window. Reading/comparing that
+-- text while tainted threw `attempt to compare execution tainted by 'ToxFilter'`
+-- at the old line 337 (`text == ""`) — the same secret-value class as N12. Two
+-- guards, in order, so we never touch `text` for an emote we shouldn't capture:
+--   1. Source-GUID guard: only player-sourced emotes are candidates. Bails
+--      before touching `text`, which both fixes the spurious NPC/system capture
+--      and keeps us off the tainted text those emotes can carry.
+--   2. pcall firewall: even for a player emote, treat `text` as if it could be
+--      tainted — swallow any throw from the read/compare and skip rather than
+--      surface an error.
+local function captureEmote(text, sender, guid)
+    -- Guard 1 — player-source only, BEFORE touching `text`.
+    if type(guid) ~= "string" or not guid:find("^Player%-") then
+        dbg("PositiveCapture.captureEmote: non-player emote, skipping (guid=%s)", tostring(guid))
+        return nil
+    end
     if not (ns.Category and ns.Category.gate("uplifter")) then
         dbg("PositiveCapture.captureEmote: uplifter category off, skipping")
         return nil
@@ -317,7 +361,18 @@ local function captureEmote(text, sender)
         dbg("PositiveCapture.captureEmote: own emote, skipping (sender=%s)", tostring(sender))
         return nil
     end
-    if not emoteDetect(text) then return nil end
+    -- Guard 2 — pcall firewall around the only `text`-touching detection. A
+    -- successful read here proves `text` is not tainted in this context, so the
+    -- later RecordPositiveMoment/PIIScrub reads are safe too.
+    local ok, detected = pcall(function()
+        if type(text) ~= "string" or text == "" then return nil end
+        return emoteDetect(text)
+    end)
+    if not ok then
+        dbg("PositiveCapture.captureEmote: emote text unreadable (tainted?), skipping")
+        return nil
+    end
+    if not detected then return nil end
     if not (ns.Buffer and ns.Buffer.RecordPositiveMoment) then return nil end
     local moment = ns.Buffer:RecordPositiveMoment(text, { pattern = "emote", emote = true }, true, sender)
     dbg("PositiveCapture.captureEmote: recorded emote moment")
@@ -326,9 +381,12 @@ local function captureEmote(text, sender)
 end
 
 ns.PositiveCapture = {
-    capture     = capture,
+    capture      = capture,
     captureEmote = captureEmote,
-    emoteDetect = emoteDetect,
-    subscribe   = subscribe,
-    detect      = detect,
+    emoteDetect  = emoteDetect,
+    subscribe    = subscribe,
+    detect       = detect,
+    -- Exported for chatFilter's tint gate (Sprint 7b bugfix): tint stays broad
+    -- for others' positivity but never fires on the user's own outgoing lines.
+    isSelfSender = isSelfSender,
 }

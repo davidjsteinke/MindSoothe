@@ -113,6 +113,29 @@ return {
             input = "@Manehealer nice save", user = "Edvins", sender = "Manehealer",
             expected = "@<player> nice save",
         },
+        {
+            id = "scrub_current_char_role_substring",
+            -- Current-character name that CONTAINS a role word ("healer") must
+            -- still strip. Locks whole-token B1 matching: "manehealer" is not the
+            -- token "healer", so the collision spare must not fire. Guards against
+            -- a regression to substring collision matching.
+            input = "thanks manehealer", user = "Manehealer", sender = "Bob",
+            expected = "thanks <player>",
+        },
+        {
+            id = "scrub_color_escaped_name",
+            -- Class-colored name (|cAARRGGBB...|r). The escape must be flattened
+            -- before name matching so the bare name reaches the matcher. This is
+            -- the exact in-game leak form.
+            input = "thanks |cffff7c0amanehealer|r", user = "Manehealer", sender = "Bob",
+            expected = "thanks <player>",
+        },
+        {
+            id = "scrub_hyperlink_name",
+            -- Player hyperlink collapses to its visible label, then strips.
+            input = "thanks |Hplayer:Manehealer-Thrall|h[Manehealer]|h", user = "Manehealer",
+            sender = "Bob", expected = "thanks [<player>]",
+        },
 
         -- ===== Edge / accepted limitation =====
         {

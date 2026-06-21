@@ -22,6 +22,24 @@ return {
         -- "thanks" still captures as the un-targeted "thanks" pattern (not direct)
         -- — proof the role anchor was never fuzzy-matched.
         { id = "role_target_exact_only", input = "thanks tnak", expect_pattern = "thanks" },
+
+        -- Name-targeted capture through WoW chat escapes (the cftcoamanehealerr
+        -- bug). Names render class-colored / as player hyperlinks; without the
+        -- Normalize.strip_escapes pre-pass the color hex fuses onto the name and
+        -- whole-token matching fails. The driver stubs UnitName -> "Tester", so a
+        -- praise aimed at the escaped own-name must fire thanks_user with
+        -- direct=true (the record gate). expect_direct asserts the record-trigger.
+        { id = "name_colored",      input = "thanks |cFFFF7C0A[Tester]|r",
+          expect_pattern = "thanks_user", expect_direct = true },
+        { id = "name_hyperlink",    input = "thanks |Hplayer:Tester-Thrall|h[Tester]|h|r",
+          expect_pattern = "thanks_user", expect_direct = true },
+        { id = "name_colored_realm", input = "thanks |cFFFF7C0A[Tester-Thrall]|r",
+          expect_pattern = "thanks_user", expect_direct = true },
+        -- A class-colored OTHER name (not the user) must NOT become a directed
+        -- thanks_user — it falls through to the bare, non-directed "thanks"
+        -- (direct=false), so it is tinted-in-room but never recorded.
+        { id = "name_colored_other", input = "thanks |cFF8788EE[Someone]|r",
+          expect_pattern = "thanks", expect_direct = false },
     },
 
     -- detect() must NOT fire (nil).

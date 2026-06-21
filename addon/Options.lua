@@ -438,10 +438,12 @@ local function buildOptions()
                     whitelist = listGroup("whitelist", "Whitelist", 4),
                     combat = {
                         type = "toggle", order = 5, width = "full",
-                        name = "Silent-drop pure hostility during boss combat",
-                        desc = "During the combat pause, high-confidence pure hostility"
-                            .. " (slurs, harm) is dropped silently; everything else passes"
-                            .. " through untouched. Matching messages vanish with no indication.",
+                        name = "Silent-drop pure hostility (currently inactive)",
+                        desc = "Intended to silently drop high-confidence pure hostility"
+                            .. " (slurs, harm) during the combat pause. The game does not"
+                            .. " invoke chat filters in combat (N12), so this has no current"
+                            .. " effect; the toggle is kept for a possible future"
+                            .. " out-of-combat home.",
                         disabled = toxfilterDisabled,
                         get = function() return g.combat_silent_drop end,
                         set = function(_, v) local gg = db(); if gg then gg.combat_silent_drop = v end end,

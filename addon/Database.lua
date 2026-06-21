@@ -83,11 +83,11 @@ local DEFAULTS = {
         -- Callout.SOUND_CHOICES; the panel/slash write the id here.
         callout_sound_id = 8959,
 
-        -- Sprint 7a (F1): in-combat silent-drop. DEFAULT ON. During the combat
-        -- pause, high-confidence pure hostility (slur, harm_invocation) is
-        -- silent-dropped; everything else still passes through untouched. Gated
-        -- by the ToxFilter category (and the addon master). Matching messages
-        -- vanish with no indication — see Commands COMBAT_SILENT_NOTE.
+        -- Sprint 7a (F1) / 7b (N12): combat silent-drop toggle. DEFAULT ON, but
+        -- CURRENTLY INERT — the carve-out it gates lives only in chatFilter's
+        -- paused branch, which the game never invokes in combat (N12), and is not
+        -- wired into the non-paused path. Kept for a possible future out-of-combat
+        -- home; the classification gate logic lives in CombatDrop.lua.
         combat_silent_drop = true,
 
         -- Sprint 5b: pre-encounter tactical reminders. Pre-7b: default ON for new
@@ -247,8 +247,9 @@ local migrations = {
         -- fields and nothing else.
         --   * callout_sound_id (F2): default 8960 (READY_CHECK) — keeps existing
         --     users on the sound they already had before the choice existed.
-        --   * combat_silent_drop (F1): default true (opt-out), so the in-combat
-        --     silent-drop of pure hostility is on for existing installs too.
+        --   * combat_silent_drop (F1): default true (opt-out). NOTE (N12): the F1
+        --     silent-drop carve-out is paused-branch-only and inert (the filter is
+        --     not invoked in combat); the field is backfilled to match DEFAULTS.
         if g.callout_sound_id   == nil then g.callout_sound_id   = 8960 end
         if g.combat_silent_drop == nil then g.combat_silent_drop = true end
     end,

@@ -119,10 +119,30 @@ local function scrubToken(tok, sender_lower)
     return tok
 end
 
+-- WoW chat delivers player names wrapped in display escapes — most commonly a
+-- class-color sequence (|cAARRGGBB...|r) and/or a player hyperlink
+-- (|Hplayer:Name-Realm...|h<label>|h). The whitespace tokenizer treats the
+-- whole escape as one token and the punctuation trim only peels the leading
+-- '|', leaving the color hex glued to the name ("cffff7c0amanehealer|r") so the
+-- known-name match never fires and the name survives. Flatten escapes to their
+-- plain text BEFORE tokenizing so the bare name reaches the matcher. Color codes
+-- are pure formatting (dropped); hyperlinks collapse to their visible label.
+-- Single source of truth lives in Normalize.strip_escapes (also called by
+-- RuleEngine.classify so the classifier/detect path sees the same clean tokens);
+-- this thin wrapper keeps the scrub path nil-safe if Normalize is absent.
+local function stripEscapes(text)
+    if ns.Normalize and ns.Normalize.strip_escapes then
+        return ns.Normalize.strip_escapes(text)
+    end
+    return text
+end
+
 local function scrub(text, sender)
     if type(text) ~= "string" or text == "" then return text end
 
     local sender_lower = nameKey(sender)
+
+    text = stripEscapes(text)
 
     -- @mention scrub: unconditional (explicit addressing), acronyms spared.
     text = text:gsub("(@)([%w_]+)", function(at, name)

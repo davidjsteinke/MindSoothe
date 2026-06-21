@@ -5,11 +5,11 @@
 -- /tox callout on; off by default. Visual and audio have independent sub-
 -- toggles for users in voice chat who want one but not the other.
 --
--- Time-critical UI: unlike Sprint 4b's positive-moment Highlight (which pauses
--- during combat because positive moments can be reviewed later), callouts fire
--- DURING combat too. That's when most callouts happen and when missing them
--- costs the most. Architectural principle (documented in CLAUDE.md): passive
--- UI for emotional support pauses; time-critical UI stays active.
+-- Out-of-combat only (N12): callouts were originally intended as time-critical UI
+-- that fires during combat, but N12 proved the chat filter is not invoked in
+-- combat and in-combat chat text is tainted/unreadable — so no addon can inspect
+-- chat during a boss fight. Callouts therefore tint + play their cue only out of
+-- combat, like Sprint 4b's positive-moment Highlight. See CLAUDE.md (N12).
 --
 -- Color register: |cFFEEBB55 (warm amber). Discriminable from Sprint 4b's
 -- positive green |cFF66AA66 under deuteranopia, protanopia, and tritanopia by
@@ -18,9 +18,10 @@
 -- full color-choice reasoning; future sprints check this list before picking
 -- their tint register.
 --
--- Sound: FileDataID 540061 via PlaySound(..., "Master"). One line to swap if
--- in-game testing shows it's too associated with another event. The "Master"
--- channel routes through master volume per spec.
+-- Sound: played via PlaySound(..., "Master"). The default cue and the selectable
+-- choices live in SOUND_CHOICES / the callout_sound_id setting (Sprint 7a F2);
+-- the original 540061 was swapped to ready-check cues (8960, then 8959 default).
+-- The "Master" channel routes through master volume per spec.
 --
 -- WoW chat-frame escape sequences |c<AARRGGBB> and |r are functional control
 -- codes — single pipe, NOT doubled. The Sprint 3 fix1 pipe-doubling rule

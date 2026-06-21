@@ -32,6 +32,13 @@ The rule engine runs first, so a real rule hit always wins over a fixture trigge
 
 The addon pauses filtering during boss encounters and Mythic+ pulls (Blizzard restricts addon code execution during these windows). When paused, all messages pass through unchanged. You'll see one chat-frame line when paused and one when filtering resumes.
 
+## Limitations
+
+The game does not run addon chat filters during boss combat, and the chat message text it delivers to addon code in combat is a protected value that addons cannot read. Any feature that needs to inspect chat during a boss fight is therefore impossible — for every addon, not just this one. Two features are scoped by this:
+
+- **Role-aware callouts are out-of-combat only.** They tint chat and play their cue outside the combat window; during a boss fight they do not fire. In-combat tactical information is instead carried by the pre-pull boss-tactic reminders, which use a different delivery path (fired at encounter start, drawn to the RaidWarning area) that does work in combat.
+- **The combat silent-drop toggle (`/tox combat`) currently has no effect.** It was built to silently drop pure hostility (slurs, harm) during the combat pause, but the same restriction prevents it from running there, and it is not wired into the out-of-combat path. Out of combat, hostility is handled by the normal category handling (edit or delete with a visible tag, per `/tox handle`). The toggle is left in place (default on) for a possible future out-of-combat home.
+
 ## Whisper filtering — default OFF
 
 `CHAT_MSG_WHISPER` is hooked but the whisper channel toggle defaults to `off`. Whispers are private 1:1 messages and the user's expectation is privacy. Turning whisper filtering on is the user opting into filtering their private conversations, which is their right but should be a deliberate choice. The first time you run `/tox channel whisper on`, a one-line privacy note prints to confirm the choice. Outgoing whispers (`CHAT_MSG_WHISPER_INFORM`) are never hooked — text the user typed is never filtered.
@@ -107,7 +114,7 @@ Live surfacing is asymmetric: a stat is shown only when reassuring (wipe rate �
 - Co-occurrence: a message that's both a positive moment and a callout for your role shows the callout amber tint (not the positive green). The moment is still captured to buffer.
 
 **Sprint 7a additions:**
-- `/tox combat on|off` — in-combat silent-drop (default on). During the combat pause the filter otherwise passes everything through; with this on, high-confidence pure hostility (slurs, harm) is silent-dropped while paused. Anything with tactical or informational content passes through untouched. Matching messages vanish with no indication. Gated by the ToxFilter category and the master toggle.
+- `/tox combat on|off` — combat silent-drop toggle (default on, but currently has no effect). It was intended to silently drop high-confidence pure hostility (slurs, harm) during the combat pause, but the game does not run chat filters in combat (see Limitations), so nothing is dropped. The toggle is kept for a possible future out-of-combat home.
 - Typo tolerance: the positive-capture and callout keyword matching tolerates a single-character typo ("thansk tank" still registers). Applies only to those keyword sets — never to the hostility classifier, rule engine, blacklist, or whitelist. Short words and role names stay exact-match-only.
 - Emote capture: `/thanks`, `/cheer`, `/salute` and similar emotes aimed at you are captured as positive moments, marked `(emote)` in `/tox positive`. The emote must be directed at you — untargeted emotes (sent to the room with no target) are ignored. Respects the Uplifter category like typed praise. **Limitation: emote detection is English-client (enUS) only** — it keys on English emote wording, so other locales will not capture emotes. A future locale pass would address this.
 

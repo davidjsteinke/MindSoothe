@@ -36,9 +36,10 @@ local CHAT_EVENTS = {
     -- against warcraft.wiki.gg). Battleground and other instanced-PvP group chat
     -- now arrives via CHAT_MSG_INSTANCE_CHAT (above). The old names were silently
     -- tolerated by ChatFrame_AddMessageEventFilter (the filter just never fired
-    -- for them) but RegisterEvent (Sprint 7a N12's OnCombatChat path) validates
-    -- event names and threw on them, aborting OnEnable before the slash-command
-    -- registration ran — hence "GUI works, /tox dead". The vestigial
+    -- for them) but a since-removed RegisterEvent experiment (the N12 in-combat
+    -- chat attempt, now deleted) validates event names and threw on them,
+    -- aborting OnEnable before the slash-command registration ran — hence
+    -- "GUI works, /tox dead". The vestigial
     -- `battleground` channel toggle (db.channels / Options / Commands) is left
     -- in place for now; BG chat is gated under `instance` via INSTANCE_CHAT. 7b
     -- should reconcile or retire that toggle.
@@ -120,15 +121,16 @@ end
 
 -- ===== Chat filter dispatch =====
 
--- Sprint 5 dispatch order:
+-- Dispatch order (authoritative version in CLAUDE.md; updated for Sprint 7a + N12):
 --   1. master toggle off → pass
 --   2. RuleEngine.classify (read-only; always runs)
---   3. Callout.detectMatching (read-only; runs during pause too — time-critical)
---   4. If paused: only callout tint + sound fire (channel-gated for visual);
---      handling, capture, highlight, fixtures all skip because they involve
---      writes or content modification that Midnight's restricted-execution
---      window doesn't permit. Callout reads classifier output and chat-frame
---      return value + PlaySound — both passive.
+--   3. Callout.detect + matchesUser (read-only). NOTE (N12): the paused branch
+--      below is never invoked in combat, so callouts are out-of-combat-only.
+--   4. If paused: callout tint + sound, else the F1 CombatDrop silent-drop
+--      carve-out, else pass. NOTE (N12): in real combat the filter is not
+--      invoked, so this whole paused branch is dead code — retained only for the
+--      pause-dispatch guard. F1 is paused-branch-only, hence inert (see
+--      CombatDrop.lua).
 --   5. Non-paused, channel-on: handling (silent/del/edit) with flagged-event
 --      buffer write.
 --   6. Non-paused: PositiveCapture.capture on pass verdict. Whisper privacy
@@ -139,10 +141,12 @@ end
 --      match.
 --   9. Non-paused, channel-on: Sprint 0 fixtures.
 --
--- Architectural principle (Sprint 5): passive UI for emotional support pauses
--- during combat (Sprint 4b's Highlight). Time-critical UI stays active during
--- combat (Sprint 5's Callout). Future sprints adding UI choose a category
--- and follow the rule. Documented in CLAUDE.md.
+-- Architectural principle (Sprint 5; amended by N12): passive UI for emotional
+-- support pauses during combat (Sprint 4b's Highlight). Time-critical callouts
+-- were intended to stay active in combat, but N12 proved that is impossible on
+-- Midnight (the filter is not invoked and chat text is tainted), so callouts are
+-- out-of-combat-only too. The only UI that works in combat is pull-boundary,
+-- pre-registered surfaces (TacticReminders). Documented in CLAUDE.md.
 local function chatFilter(_chatFrame, event, msg, ...)
     if type(msg) ~= "string" or msg == "" then return false end
 
@@ -215,24 +219,24 @@ local function chatFilter(_chatFrame, event, msg, ...)
             local tinted = ns.Callout.tintIfEligible(msg, callout)
             if tinted then return false, tinted, ... end
         end
-        -- Sprint 7a (F1): in-combat silent-drop of high-confidence pure
-        -- hostility. Everything else still passes through untouched during the
-        -- pause. CombatDrop.shouldDrop folds in the toggle + ToxFilter category
-        -- (+ master); channelEnabled keeps it consistent with the non-combat
-        -- handling path (channel-off suppresses the drop). The flagged-event
-        -- write stores classification metadata only (category, combat flag),
-        -- never the body — combat drops are pure third-party hostility.
+        -- Sprint 7a (F1) / 7b (N12): this would silent-drop high-confidence pure
+        -- hostility, but the paused branch is never invoked in combat (N12), so it
+        -- is dead code — kept for the pause-dispatch guard. CombatDrop.shouldDrop
+        -- folds in the toggle + ToxFilter category (+ master); channelEnabled keeps
+        -- it consistent with the non-combat handling path. The flagged-event write
+        -- (were it ever reached) would store classification metadata only (category,
+        -- combat flag), never the body — combat drops are pure third-party hostility.
         if channelEnabled and ns.CombatDrop and ns.CombatDrop.shouldDrop(result) then
             if ns.Buffer and result.category then
                 ns.Buffer:RecordFlaggedEvent(result.category, result.severity, true)
             end
             return true
         end
-        -- Sprint 7a (F1): ToxFilterTest:Silent rides the combat path so the
-        -- feature is verifiable in-game without typing real hostility into a live
-        -- group. Documented widening of G3 (other fixtures still pass through
-        -- during pause); gated by the same toggle + ToxFilter category so it
-        -- cannot fire unexpectedly. No flagged-event write (it's a test trigger).
+        -- Sprint 7a (F1) / 7b (N12): this combat-path ToxFilterTest:Silent branch
+        -- is also dead in combat (paused branch not invoked). The working in-game
+        -- silent test runs through the non-paused Sprint 0 fixture (step 9). Gated
+        -- by the same toggle + ToxFilter category. No flagged-event write (it's a
+        -- test trigger).
         if channelEnabled and db and db.combat_silent_drop
            and ns.Category and ns.Category.gate("toxfilter")
            and msg:find(TRIGGER_SILENT, 1, true) then
@@ -259,12 +263,13 @@ local function chatFilter(_chatFrame, event, msg, ...)
     end
 
     local moment = nil
+    local sender = nil
     if ns.PositiveCapture and result.handling == "pass" then
         -- Sprint 6: the CHAT_MSG_* author (event arg2, first of ...) is the
         -- authoritative source for the sender's name; thread it to the scrubber
         -- so it can strip the sender's name from the stored body. Reading the
         -- vararg does not consume it — the ... pass-through below is unaffected.
-        local sender = ...
+        sender = ...
         moment = ns.PositiveCapture.capture(msg, result, event, sender)
     end
 
@@ -276,13 +281,29 @@ local function chatFilter(_chatFrame, event, msg, ...)
         if tinted then return false, tinted, ... end
     end
 
-    -- Sprint 5d: positive-moment highlight is Uplifter. moment is already nil
-    -- when the category is off (PositiveCapture.capture self-gates), but the
-    -- explicit gate keeps the Uplifter dependency visible at the call site.
-    if channelEnabled and moment and ns.Category and ns.Category.gate("uplifter")
-        and ns.Highlight and ns.Highlight.tintIfEligible then
-        local tinted = ns.Highlight.tintIfEligible(msg, moment)
-        if tinted then return false, tinted, ... end
+    -- Sprint 7b bugfix: tint and record are SEPARATE decisions. capture() above
+    -- records only praise directed at the user from someone else (returns the
+    -- recorded moment or nil). The green tint stays BROAD — it fires on any
+    -- detected group positivity (direct, bare thanks, third-party) so chat keeps
+    -- emphasizing the room's positivity — EXCEPT the user's own outgoing praise,
+    -- which isSelfSender excludes from both record and tint. So: tint when there
+    -- is a tint target (the recorded moment, else a broad detect()) AND the line
+    -- is not the user's own. Still Uplifter-gated, channel-gated, and pass-only
+    -- (a del/edit message that passed through with the ToxFilter category off
+    -- must never be tinted). detect() is cheap and re-run only on the no-record path.
+    if channelEnabled and result.handling == "pass"
+        and ns.Category and ns.Category.gate("uplifter")
+        and ns.Highlight and ns.Highlight.tintIfEligible
+        and ns.PositiveCapture
+        and not (ns.PositiveCapture.isSelfSender and ns.PositiveCapture.isSelfSender(sender)) then
+        local tintMoment = moment
+        if not tintMoment and ns.PositiveCapture.detect then
+            tintMoment = ns.PositiveCapture.detect(result.normalized_tokens, result.signals)
+        end
+        if tintMoment then
+            local tinted = ns.Highlight.tintIfEligible(msg, tintMoment)
+            if tinted then return false, tinted, ... end
+        end
     end
 
     -- Sprint 5d: Sprint 0 fixtures perform chat modification, so they ride with
@@ -588,10 +609,24 @@ end
 -- Sprint 7a (F4): CHAT_MSG_TEXT_EMOTE → positive capture. arg1 is the rendered
 -- emote text ("<Name> thanks you."), arg2 the sender. Self-gates on the Uplifter
 -- category inside captureEmote; enUS-only detection (documented limitation).
-function ToxFilter:OnTextEmote(_event, text, sender)
-    if ns.PositiveCapture and ns.PositiveCapture.captureEmote then
-        ns.PositiveCapture.captureEmote(text, sender)
+function ToxFilter:OnTextEmote(_event, text, sender, ...)
+    if not (ns.PositiveCapture and ns.PositiveCapture.captureEmote) then return end
+    -- CHAT_MSG_TEXT_EMOTE also fires for NPC / system / boss emotes (a Delve
+    -- completion, a vendor closing), not just player /emotes. The event delivers
+    -- the source unit's GUID among its trailing args (arg12 in the documented
+    -- layout). Scan for it defensively rather than trust a fixed position, so a
+    -- future arg-layout shift can't silently misclassify a player as an NPC.
+    -- captureEmote uses the GUID to drop non-player emotes BEFORE touching the
+    -- emote text — which also keeps us off any secret/tainted text an NPC /
+    -- restricted-window emote may deliver (the same secret-value class as N12;
+    -- captureEmote 337's `text == ""` compare threw on a Delve-end / vendor-close
+    -- emote whose text was tainted).
+    local guid
+    for i = 1, select("#", ...) do
+        local v = select(i, ...)
+        if type(v) == "string" and v:match("^%a+%-%d") then guid = v; break end
     end
+    ns.PositiveCapture.captureEmote(text, sender, guid)
 end
 
 function ToxFilter:OnSlashCommand(input)

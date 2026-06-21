@@ -84,6 +84,26 @@ local function normalize(token)
     return token
 end
 
+-- WoW chat delivers player names wrapped in display escapes — most commonly a
+-- class-color sequence (|cAARRGGBB...|r) and/or a player hyperlink
+-- (|Hplayer:Name-Realm...|h<label>|h). tokenize() splits on whitespace, so the
+-- whole escape becomes one token; normalize()'s strip_punct only drops the bare
+-- '|', leaving the color hex and the 'r' from '|r' fused onto the name
+-- ("|cFFFF7C0A[Manehealer]|r" -> "cftcoamanehealerr") so name comparison fails.
+-- Flatten escapes to plain text BEFORE tokenizing: color codes are pure
+-- formatting (dropped); hyperlinks collapse to their visible label. This is NOT
+-- part of the hashed normalization (normalize()/tokenize() are unchanged), so it
+-- does not affect NORMALIZATION_VERSION or the rule-data format — it only cleans
+-- the input. Single source of truth; PIIScrub.lua delegates here.
+local function strip_escapes(text)
+    if type(text) ~= "string" then return text end
+    text = text:gsub("|c%x%x%x%x%x%x%x%x", "")  -- color start
+    text = text:gsub("|H.-|h(.-)|h", "%1")      -- hyperlink -> visible label
+    text = text:gsub("|T.-|t", "")              -- inline texture
+    text = text:gsub("|r", "")                  -- color reset (incl. orphans)
+    return text
+end
+
 local function tokenize(msg)
     local tokens = {}
     for word in msg:gmatch("%S+") do
@@ -95,5 +115,6 @@ end
 ns.Normalize = {
     normalize = normalize,
     tokenize = tokenize,
+    strip_escapes = strip_escapes,
     NORMALIZATION_VERSION = NORMALIZATION_VERSION,
 }

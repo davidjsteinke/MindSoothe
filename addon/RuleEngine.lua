@@ -37,6 +37,13 @@ local function classify(msg, handlingResolver)
     local Classifier = ns.Classifier
     local UserRules  = ns.UserRules  -- nil in corpus harness; that's fine
 
+    -- Flatten WoW chat escapes (class-color/hyperlink/texture) before tokenizing
+    -- so an escape-wrapped player name ("|cFFFF7C0A[Manehealer]|r") reaches
+    -- tokenize/normalize as the bare name, not "cftcoamanehealerr". Without this,
+    -- whole-token name matching in PositiveCapture.detect never fires for
+    -- class-colored names. No NORMALIZATION_VERSION impact (input cleaning only);
+    -- a no-op on plain-text corpus fixtures.
+    msg = Normalize.strip_escapes(msg)
     local raw_tokens = Normalize.tokenize(msg)
     local normalized = {}
     for i = 1, #raw_tokens do

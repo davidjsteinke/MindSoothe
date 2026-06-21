@@ -7,7 +7,12 @@
 --   * whether enUS targeted emotes actually render "you" (assumed by design);
 --   * the self-sender guard (own outgoing emote skipped) — it lives in
 --     captureEmote, which needs Buffer/Database the detect harness does not load;
---   * the Uplifter category gate around captureEmote (covered by the 5d gating).
+--   * the Uplifter category gate around captureEmote (covered by the 5d gating);
+--   * the post-7a taint fix: captureEmote's player-source GUID guard (NPC /
+--     system emotes from Delve-end / vendor-close are dropped before touching the
+--     emote text) and the pcall firewall around emoteDetect. Both depend on the
+--     live CHAT_MSG_TEXT_EMOTE GUID arg + secret-value semantics and cannot be
+--     modeled here; emoteDetect's keyword/self-target logic below is unchanged.
 --
 -- emoteDetect is enUS-only by construction (English emote verbs + "you"/"your");
 -- other locales are a documented limitation, not a silent gap.

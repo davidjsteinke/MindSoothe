@@ -23,6 +23,7 @@ SCRUB_CORPUS_FILE="$PROJECT_ROOT/corpus/sprint6_scrub.lua"
 COMBAT_CORPUS_FILE="$PROJECT_ROOT/corpus/sprint7a_combat.lua"
 FUZZY_CORPUS_FILE="$PROJECT_ROOT/corpus/sprint7a_fuzzy.lua"
 EMOTE_CORPUS_FILE="$PROJECT_ROOT/corpus/sprint7a_emote.lua"
+CAPTURE_CORPUS_FILE="$PROJECT_ROOT/corpus/sprint7a_capture.lua"
 
 if ! command -v lua >/dev/null 2>&1; then
     echo "Error: 'lua' interpreter not found. Install via: sudo apt-get install lua5.1" >&2
@@ -64,6 +65,9 @@ fi
 if [[ ! -f "$COMBAT_CORPUS_FILE" ]]; then COMBAT_CORPUS_FILE=""; fi
 if [[ ! -f "$FUZZY_CORPUS_FILE"  ]]; then FUZZY_CORPUS_FILE="";  fi
 if [[ ! -f "$EMOTE_CORPUS_FILE"  ]]; then EMOTE_CORPUS_FILE="";  fi
+
+# Sprint 7b positive-capture record/tint tests are pure Lua too. Acceptable missing.
+if [[ ! -f "$CAPTURE_CORPUS_FILE" ]]; then CAPTURE_CORPUS_FILE=""; fi
 
 python3 - "$CORPUS_FILE" "$CORPUS_LUA" <<'PY'
 import json, sys
@@ -147,6 +151,7 @@ local scrub_corpus_file     = arg[7]
 local combat_corpus_file    = arg[8]
 local fuzzy_corpus_file      = arg[9]
 local emote_corpus_file      = arg[10]
+local capture_corpus_file    = arg[11]
 
 -- WoW-API stub: bit library (only bxor needed for FNV-1a), nothing else.
 _G.bit = {
@@ -187,6 +192,7 @@ load_module("RuleEngine.lua")
 load_module("CombatDrop.lua")
 load_module("Callout.lua")
 load_module("PositiveCapture.lua")
+load_module("Buffer.lua")
 load_module("JournalData.lua")
 load_module("TacticReminders.lua")
 load_module("PreDungeonData.lua")
@@ -852,9 +858,12 @@ end
 for _, c in ipairs(fz.positive_cases or {}) do
     t = t + 1
     local m = detectFor(c.input)
-    if m and (not c.expect_pattern or m.pattern == c.expect_pattern) then p = p + 1 else
-        fails[#fails + 1] = string.format("  FAIL %s: expected fire(%s), got %s",
-            c.id, tostring(c.expect_pattern), m and m.pattern or "nil")
+    local pattern_ok = m and (not c.expect_pattern or m.pattern == c.expect_pattern)
+    local direct_ok  = (c.expect_direct == nil) or (m and m.direct == c.expect_direct)
+    if pattern_ok and direct_ok then p = p + 1 else
+        fails[#fails + 1] = string.format("  FAIL %s: expected fire(%s,direct=%s), got %s(direct=%s)",
+            c.id, tostring(c.expect_pattern), tostring(c.expect_direct),
+            m and m.pattern or "nil", m and tostring(m.direct) or "nil")
     end
 end
 for _, c in ipairs(fz.negative_cases or {}) do
@@ -912,9 +921,69 @@ print(string.format("Pass:      %d / %d (%.1f%%)", p, t, t > 0 and 100.0 * p / t
 if #fails > 0 then print(); print("Failures:"); for _, l in ipairs(fails) do print(l) end end
 end
 end
+
+-- ===== Sprint 7b bugfix: positive-capture record narrowing + tint breadth =====
+-- Drives the REAL capture() against a record-keeping Buffer (so the /tox positive
+-- row write + PIIScrub run for real), and mirrors chatFilter's tint rule
+-- (tint target exists AND not isSelfSender) to lock in "self gets neither,
+-- others get tint-only-or-tint-plus-record".
+if capture_corpus_file and capture_corpus_file ~= "" then
+local cpok, cp = pcall(dofile, capture_corpus_file)
+if not cpok or not cp then
+    print()
+    print("=== Sprint 7b capture corpus: failed to load, skipping ===")
+else
+local t, p, fails = 0, 0, {}
+stubDB.enabled = true
+stubDB.category_uplifter_enabled = true
+_G.UnitName = function() return cp.player or "Manehealer" end
+if ns.PIIScrub and ns.PIIScrub._resetOwnedCache then ns.PIIScrub._resetOwnedCache() end
+ns.Buffer:Init()
+local function recordCount()
+    return #stubDB.session_buffer.events.positive_moments
+end
+for _, c in ipairs(cp.cases or {}) do
+    stubbedRole = c.role or cp.role
+    local before = recordCount()
+    local result = ns.RuleEngine.classify(c.input)
+    local moment = ns.PositiveCapture.capture(c.input, result, "CHAT_MSG_INSTANCE_CHAT", c.sender)
+    local recorded = recordCount() > before
+    -- chatFilter tint rule: a tint target exists (recorded moment, else broad
+    -- detect()) AND the line is not the user's own outgoing praise.
+    local tintTarget = moment or ns.PositiveCapture.detect(result.normalized_tokens, result.signals)
+    local tinted = (tintTarget ~= nil) and not ns.PositiveCapture.isSelfSender(c.sender)
+
+    t = t + 1
+    if recorded == c.recorded then p = p + 1 else
+        fails[#fails+1] = string.format("  FAIL %s/recorded: got=%s want=%s",
+            c.id, tostring(recorded), tostring(c.recorded))
+    end
+    t = t + 1
+    if tinted == c.tinted then p = p + 1 else
+        fails[#fails+1] = string.format("  FAIL %s/tinted: got=%s want=%s",
+            c.id, tostring(tinted), tostring(c.tinted))
+    end
+    if c.scrub_absent and recorded then
+        t = t + 1
+        local rec = stubDB.session_buffer.events.positive_moments[recordCount()]
+        local body = (rec and rec.text or ""):lower()
+        if not body:find(c.scrub_absent, 1, true) then p = p + 1 else
+            fails[#fails+1] = string.format("  FAIL %s/scrub: %q still contains %q",
+                c.id, body, c.scrub_absent)
+        end
+    end
+end
+_G.UnitName = nil; stubbedRole = nil
+print()
+print("=== ToxFilter Sprint 7b positive-capture record/tint ===")
+print(string.format("Checks:    %d", t))
+print(string.format("Pass:      %d / %d (%.1f%%)", p, t, t > 0 and 100.0 * p / t or 0.0))
+if #fails > 0 then print(); print("Failures:"); for _, l in ipairs(fails) do print(l) end end
+end
+end
 LUA
 
-lua "$HARNESS_LUA" "$ADDON_DIR" "$CORPUS_LUA" "$CALLOUT_CORPUS_LUA" "$REMINDERS_CORPUS_FILE" "$WARNINGS_CORPUS_FILE" "$CATEGORY_CORPUS_FILE" "$SCRUB_CORPUS_FILE" "$COMBAT_CORPUS_FILE" "$FUZZY_CORPUS_FILE" "$EMOTE_CORPUS_FILE"
+lua "$HARNESS_LUA" "$ADDON_DIR" "$CORPUS_LUA" "$CALLOUT_CORPUS_LUA" "$REMINDERS_CORPUS_FILE" "$WARNINGS_CORPUS_FILE" "$CATEGORY_CORPUS_FILE" "$SCRUB_CORPUS_FILE" "$COMBAT_CORPUS_FILE" "$FUZZY_CORPUS_FILE" "$EMOTE_CORPUS_FILE" "$CAPTURE_CORPUS_FILE"
 
 # Sprint 7a N12 pause-dispatch guard. Runs in a SEPARATE Lua process because it
 # loads ToxFilter.lua (the live chatFilter) with its own WoW-API stubs — kept
