@@ -2,7 +2,7 @@
 -- Key Dispels, and Tips, surfaced ONCE at CHALLENGE_MODE_START (the M+
 -- countdown). Mythic+ only: CHALLENGE_MODE_START fires only for keys, never
 -- on normal/heroic. Once-per-instance per session — an instance already
--- surfaced this session stays silent until /tox warnings reset or /reload.
+-- surfaced this session stays silent until /mind warnings reset or /reload.
 --
 -- Distinct from Sprint 5b's TacticReminders (per-encounter, ENCOUNTER_START).
 -- Separate module, separate trigger, separate data (PreDungeonData.lua).
@@ -44,7 +44,7 @@ local function db()
     return ns.Database and ns.Database:Get() or nil
 end
 
-local function out(line) print("[ToxFilter] " .. line) end
+local function out(line) print(ns.Const.PREFIX .. line) end
 
 local function isPaused()
     return ns.ToxFilterState and ns.ToxFilterState.isPaused() or false
@@ -53,7 +53,7 @@ end
 local function dprint(line)
     local g = db()
     if g and g.debug_enabled then
-        print("[ToxFilter Debug] " .. line)
+        print(ns.Const.DEBUG_PREFIX .. line)
     end
 end
 
@@ -110,7 +110,7 @@ function PreDungeon.Lookup(instance, role)
     return { interrupts = interrupts, dispels = dispels, tips = tips }
 end
 
--- Count of instances with warning data. Used by /tox warnings state line.
+-- Count of instances with warning data. Used by /mind warnings state line.
 function PreDungeon.CountInstances()
     local D = ns.PreDungeonData
     if not (D and D.instances) then return 0 end
@@ -128,7 +128,7 @@ function PreDungeon.CountSeen()
 end
 
 -- Clear the seen map. Called from OnInitialize so warnings re-surface every
--- /reload (session-scoped despite db storage), and from /tox warnings reset
+-- /reload (session-scoped despite db storage), and from /mind warnings reset
 -- for user-invoked re-arm.
 function PreDungeon.ResetSession()
     local g = db(); if not g then return end
@@ -217,19 +217,19 @@ function PreDungeon.Surface(instance)
     if nInt > 0 then
         out("Interrupts:")
         for _, e in ipairs(data.interrupts) do
-            print("[ToxFilter]   - " .. interruptLine(e))
+            print(ns.Const.PREFIX .. "  - " .. interruptLine(e))
         end
     end
     if nDisp > 0 then
         out("Dispels:")
         for _, e in ipairs(data.dispels) do
-            print("[ToxFilter]   - " .. dispelLine(e))
+            print(ns.Const.PREFIX .. "  - " .. dispelLine(e))
         end
     end
     if nTips > 0 then
         out("Tips:")
         for _, line in ipairs(data.tips) do
-            print("[ToxFilter]   - " .. line)
+            print(ns.Const.PREFIX .. "  - " .. line)
         end
     end
 

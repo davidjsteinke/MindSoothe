@@ -2,7 +2,7 @@
 --
 -- When a message contains a tactical callout addressed to the user's effective
 -- role, apply a warm-amber color tint and play a subtle audio cue. Opt-in via
--- /tox callout on; off by default. Visual and audio have independent sub-
+-- /mind callout on; off by default. Visual and audio have independent sub-
 -- toggles for users in voice chat who want one but not the other.
 --
 -- Out-of-combat only (N12): callouts were originally intended as time-critical UI
@@ -51,7 +51,7 @@ local CALLOUT_SOUND_CHANNEL = "Master"
 -- Sprint 7a (F2): selectable callout sound. ONE easily-edited table — id is the
 -- SoundKit constant, name is the slash/GUI key, label is the display string.
 -- IDs are PROVISIONAL: SoundKit ids need in-game audition (Sprint 5 fix proved
--- documented ids can be silent), so audition via `/tox callout sound preview`
+-- documented ids can be silent), so audition via `/mind callout sound preview`
 -- and swap ids here freely; nothing else references the numbers. Labels are
 -- low-affect and pass the tonal grep.
 local SOUND_CHOICES = {
@@ -252,14 +252,14 @@ function Callout.tintIfEligible(msg, detection)
         -- whether a detection was even passed in (so we can see whether the
         -- caller had a callout to tint at all).
         print(string.format(
-            "[ToxFilter Debug] tintIfEligible entry: enabled=%s, ui=%s, has_detection=%s",
+            ns.Const.DEBUG_PREFIX .. "tintIfEligible entry: enabled=%s, ui=%s, has_detection=%s",
             tostring(g.callout_enabled),
             tostring(g.callout_ui),
             tostring(detection ~= nil)))
     end
     local function dret(label, value)
         if g and g.debug_enabled then
-            print("[ToxFilter Debug] tintIfEligible returning: " .. label)
+            print(ns.Const.DEBUG_PREFIX .. "tintIfEligible returning: " .. label)
         end
         return value
     end
@@ -277,7 +277,7 @@ function Callout.playSoundIfEligible(detection)
         -- P6: entry state for the audio path. Mirrors P4 so we can see
         -- whether the visual and audio paths agree on the gate state.
         print(string.format(
-            "[ToxFilter Debug] playSoundIfEligible entry: enabled=%s, sound=%s, has_detection=%s",
+            ns.Const.DEBUG_PREFIX .. "playSoundIfEligible entry: enabled=%s, sound=%s, has_detection=%s",
             tostring(g.callout_enabled),
             tostring(g.callout_sound),
             tostring(detection ~= nil)))
@@ -329,7 +329,7 @@ end
 -- writes, so a sub-toggle the user disabled during testing survives /reload
 -- and continues to suppress visual or audio after the master is later flipped
 -- back on. Master-on path should surface the inconsistency. Returns a single
--- combined string (or nil); callers add the [ToxFilter] prefix.
+-- combined string (or nil); callers add the addon chat prefix (ns.Const.PREFIX).
 function Callout.GetStateMismatchNote()
     local g = db()
     if not g then return nil end
@@ -338,11 +338,11 @@ function Callout.GetStateMismatchNote()
 
     if not g.callout_ui and not g.callout_sound then
         return "Note: visual tint and audio cue are off."
-            .. " Run /tox callout ui on or /tox callout sound on to enable."
+            .. " Run /mind callout ui on or /mind callout sound on to enable."
     elseif not g.callout_ui then
-        return "Note: visual tint is off. Run /tox callout ui on to enable."
+        return "Note: visual tint is off. Run /mind callout ui on to enable."
     else
-        return "Note: audio cue is off. Run /tox callout sound on to enable."
+        return "Note: audio cue is off. Run /mind callout sound on to enable."
     end
 end
 

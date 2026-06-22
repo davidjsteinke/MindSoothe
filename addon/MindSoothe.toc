@@ -1,9 +1,9 @@
 ## Interface: 120005
-## Title: ToxFilter
-## Notes: Role-confidence support — filters incoming group/raid/instance/BG chat. Pre-release working name.
+## Title: Mind Soothe
+## Notes: Role-confidence support — filters incoming group/raid/instance/BG chat.
 ## Author: davidjsteinke
-## Version: 0.7.0-sprint7a-fix
-## SavedVariables: ToxFilterDB
+## Version: 0.8.0-sprint8
+## SavedVariables: MindSootheDB
 
 Libs\LibStub\LibStub.lua
 Libs\CallbackHandler-1.0\CallbackHandler-1.0.xml
@@ -14,6 +14,7 @@ Libs\AceDB-3.0\AceDB-3.0.xml
 Libs\AceGUI-3.0\AceGUI-3.0.xml
 Libs\AceConfig-3.0\AceConfig-3.0.xml
 
+Const.lua
 Hash.lua
 Normalize.lua
 Categories.lua
@@ -43,4 +44,4 @@ CombatDrop.lua
 Debug.lua
 Commands.lua
 Options.lua
-ToxFilter.lua
+MindSoothe.lua

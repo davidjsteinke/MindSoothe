@@ -1,19 +1,21 @@
--- ToxFilter — Build 1 Sprint 4b.
+-- Mind Soothe — main addon module.
 -- Live path is deterministic only; no LLM, no network, no automation.
 -- Display-only modification of the user's own chat frame.
 --
--- Sprint 4b layers visual UI on top of Sprint 4a's data layer: chat-line
--- color tint on captured positive moments (when positive_ui is on and not
--- paused), an animated box-breathing frame, and the /tox ready meta-command
--- that chains grounding → breathing → lift in user-configured order.
+-- Visual UI sits on top of the data layer: chat-line color tint on captured
+-- positive moments (when positive_ui is on and not paused), an animated
+-- box-breathing frame, and the /mind ready meta-command that chains
+-- grounding → breathing → lift in user-configured order.
 --
 -- chatFilter dispatch order is master → channel → rule engine → positive
 -- capture (pass-through only) → highlight tint (when eligible) → fixtures.
 
 local _, ns = ...
 
-local ADDON_NAME = "ToxFilter"
-local VERSION = "0.7.0-sprint7a-fix"
+local ADDON_NAME = ns.Const.ADDON_NAME
+-- Version is single-sourced from the TOC ## Version: line (Sprint 8). No Lua
+-- VERSION literal — C_AddOns.GetAddOnMetadata reads the manifest at load.
+local VERSION = C_AddOns.GetAddOnMetadata(ADDON_NAME, "Version")
 
 local ToxFilter = LibStub("AceAddon-3.0"):NewAddon(
     ADDON_NAME,
@@ -39,7 +41,7 @@ local CHAT_EVENTS = {
     -- for them) but a since-removed RegisterEvent experiment (the N12 in-combat
     -- chat attempt, now deleted) validates event names and threw on them,
     -- aborting OnEnable before the slash-command registration ran — hence
-    -- "GUI works, /tox dead". The vestigial
+    -- "GUI works, /mind dead". The vestigial
     -- `battleground` channel toggle (db.channels / Options / Commands) is left
     -- in place for now; BG chat is gated under `instance` via INSTANCE_CHAT. 7b
     -- should reconcile or retire that toggle.
@@ -104,9 +106,9 @@ local function setPaused(paused)
     if paused == isPaused then return end
     isPaused = paused
     if paused then
-        print("[ToxFilter] Filtering paused — combat window. Filter resumes after pull.")
+        print(ns.Const.PREFIX .. "Filtering paused — combat window. Filter resumes after pull.")
     else
-        print("[ToxFilter] Filtering resumed.")
+        print(ns.Const.PREFIX .. "Filtering resumed.")
     end
 end
 
@@ -161,7 +163,7 @@ local function chatFilter(_chatFrame, event, msg, ...)
     -- this line does NOT print while paused, the suppression is upstream of the
     -- filter (Blizzard's restricted execution), not in the dispatch below.
     if db and db.debug_enabled then
-        print(string.format("[ToxFilter Debug] chatFilter received: '%s' on event %s (isPaused=%s)",
+        print(string.format(ns.Const.DEBUG_PREFIX .. "chatFilter received: '%s' on event %s (isPaused=%s)",
             msg, tostring(event), tostring(isPaused)))
     end
     if db then
@@ -194,7 +196,7 @@ local function chatFilter(_chatFrame, event, msg, ...)
             if detection and detection.roles then
                 roles_str = "{" .. table.concat(detection.roles, ",") .. "}"
             end
-            print("[ToxFilter Debug] Callout.detect: " .. roles_str
+            print(ns.Const.DEBUG_PREFIX .. "Callout.detect: " .. roles_str
                 .. " handling=" .. tostring(result.handling))
         end
         if detection then
@@ -203,10 +205,10 @@ local function chatFilter(_chatFrame, event, msg, ...)
                 local eff_role = (ns.Database and ns.Database.GetEffectiveRole)
                     and ns.Database:GetEffectiveRole() or nil
                 -- P3: match decision + the effective role used. Catches role
-                -- drift (auto unresolved at login window, /tox role switch
+                -- drift (auto unresolved at login window, /mind role switch
                 -- between messages, etc.).
                 print(string.format(
-                    "[ToxFilter Debug] Callout.matchesUser: %s (effective role: %s)",
+                    ns.Const.DEBUG_PREFIX .. "Callout.matchesUser: %s (effective role: %s)",
                     tostring(matches), tostring(eff_role)))
             end
             if matches then callout = detection end
@@ -337,17 +339,18 @@ ns.ToxFilterDispatch = {
 
 local function validateRuleData()
     if not ns.RuleData then
-        print("[ToxFilter] Rule data missing — running with no rules. Rebuild with ./scripts/build-rules.sh")
+        print(ns.Const.PREFIX .. "Rule data missing — running with no rules. Rebuild with ./scripts/build-rules.sh")
         return
     end
     if ns.RuleData.hash_version ~= ns.Hash.HASH_VERSION then
-        print("[ToxFilter] Rule data hash version mismatch (" .. tostring(ns.RuleData.hash_version)
+        print(ns.Const.PREFIX .. "Rule data hash version mismatch (" .. tostring(ns.RuleData.hash_version)
               .. " vs " .. ns.Hash.HASH_VERSION .. ") — rules disabled until rebuild")
         ns.RuleData = nil
         return
     end
     if ns.RuleData.normalization_version ~= ns.Normalize.NORMALIZATION_VERSION then
-        print("[ToxFilter] Rule data normalization version mismatch (" .. tostring(ns.RuleData.normalization_version)
+        print(ns.Const.PREFIX .. "Rule data normalization version mismatch ("
+              .. tostring(ns.RuleData.normalization_version)
               .. " vs " .. ns.Normalize.NORMALIZATION_VERSION .. ") — rules disabled until rebuild")
         ns.RuleData = nil
         return
@@ -355,15 +358,15 @@ local function validateRuleData()
 end
 
 -- Sanity check: every event in CHAT_EVENTS / WHISPER_EVENT must map to a known
--- channel key. Catches typos at load instead of when a user runs /tox channel.
+-- channel key. Catches typos at load instead of when a user runs /mind channel.
 local function validateChannelMap()
     local known = { raid = true, instance = true, battleground = true, whisper = true }
     for _, ev in ipairs(CHAT_EVENTS) do
         local ch = EVENT_TO_CHANNEL[ev]
-        assert(ch and known[ch], "[ToxFilter] EVENT_TO_CHANNEL missing or unknown for " .. ev)
+        assert(ch and known[ch], ns.Const.PREFIX .. "EVENT_TO_CHANNEL missing or unknown for " .. ev)
     end
     assert(EVENT_TO_CHANNEL[WHISPER_EVENT] == "whisper",
-           "[ToxFilter] EVENT_TO_CHANNEL missing whisper mapping")
+           ns.Const.PREFIX .. "EVENT_TO_CHANNEL missing whisper mapping")
 end
 
 -- Sprint 4 fix: Counter scope is dungeon and raid only — battleground, arena,
@@ -474,10 +477,10 @@ function ToxFilter:OnEnable()
     -- Hardening (Sprint 7a N12 fix): register the slash command FIRST, before any
     -- RegisterEvent. RegisterEvent throws on an event name the client doesn't
     -- know (this is exactly how the removed CHAT_MSG_BATTLEGROUND aborted OnEnable
-    -- and took /tox down with it). Registering slash up front means no later
+    -- and took /mind down with it). Registering slash up front means no later
     -- event-registration failure can ever skip it again — the addon stays
     -- controllable even if a future client patch invalidates an event name.
-    self:RegisterChatCommand("tox", "OnSlashCommand")
+    self:RegisterChatCommand(ns.Const.SLASH, "OnSlashCommand")
 
     validateRuleData()
 
@@ -500,10 +503,10 @@ function ToxFilter:OnEnable()
     -- secret/tainted value to in-combat handlers — so there is no in-combat
     -- callout handler. Callouts ride the out-of-combat chat-filter tint path only.
 
-    print("[ToxFilter] Loaded — version " .. VERSION)
+    print(ns.Const.PREFIX .. "Loaded — version " .. VERSION)
     if ns.Callout and ns.Callout.GetStateMismatchNote then
         local note = ns.Callout.GetStateMismatchNote()
-        if note then print("[ToxFilter] " .. note) end
+        if note then print(ns.Const.PREFIX .. note) end
     end
 end
 

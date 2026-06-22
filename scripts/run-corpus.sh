@@ -179,7 +179,10 @@ local function load_module(name)
     chunk("ToxFilter", ns)
 end
 
--- TOC order minus Libs/ and ToxFilter.lua (lifecycle / AceAddon, not needed here).
+-- TOC order minus Libs/ and MindSoothe.lua (lifecycle / AceAddon, not needed here).
+-- Const.lua first: ns.Const (PREFIX/SAVEDVAR/...) is consumed at load by Hash's
+-- self-test asserts and at call time by every surfacing module.
+load_module("Const.lua")
 load_module("Hash.lua")
 load_module("Normalize.lua")
 load_module("Categories.lua")
@@ -477,7 +480,7 @@ end
 local function countBulletLines(lines)
     local n = 0
     for i = 1, #lines do
-        if lines[i]:find("^%[ToxFilter%]%s+%- ") then n = n + 1 end
+        if lines[i]:find("^%[Mind Soothe%]%s+%- ") then n = n + 1 end
     end
     return n
 end
@@ -485,7 +488,7 @@ end
 local function hasHeaderLine(lines)
     for i = 1, #lines do
         -- Header line example:
-        --   [ToxFilter] First Boss (heroic) — Tank reminders:
+        --   [Mind Soothe] First Boss (heroic) — Tank reminders:
         if lines[i]:find("reminders:$") then return true end
     end
     return false
@@ -585,7 +588,7 @@ end
 ns.PreDungeonData.instances = wcorpus.fixtures.instances
 
 -- PreDungeon header line example:
---   [ToxFilter] KeyDungeon A — pre-key reminders (DPS):
+--   [Mind Soothe] KeyDungeon A — pre-key reminders (DPS):
 local function hasWarningHeader(lines)
     for i = 1, #lines do
         if lines[i]:find("pre%-key reminders") then return true end
@@ -772,7 +775,7 @@ for _, fx in ipairs(scorpus.fixtures) do
     sp_total = sp_total + 1
     -- Stub the live-name sources the scrubber reads.
     _G.UnitName = function() return fx.user end
-    _G.ToxFilterDB = { profileKeys = makeProfileKeys(fx.roster) }
+    _G[ns.Const.SAVEDVAR] = { profileKeys = makeProfileKeys(fx.roster) }
     ns.PIIScrub._resetOwnedCache()
 
     local actual = ns.PIIScrub.scrub(fx.input, fx.sender)
@@ -786,7 +789,7 @@ for _, fx in ipairs(scorpus.fixtures) do
     end
 end
 _G.UnitName = nil
-_G.ToxFilterDB = nil
+_G[ns.Const.SAVEDVAR] = nil
 
 print()
 print("=== ToxFilter Sprint 6 scrub corpus ===")

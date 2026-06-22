@@ -1,6 +1,6 @@
 # ToxFilter
 
-Working name. Will be renamed before public distribution — keep references to the name flexible (TOC, slash command prefix, README all carry the working name today).
+Shipping name is **Mind Soothe** (renamed from the working name "ToxFilter" in Sprint 8). The identity surface — addon name, display name, slash `/mind`, SavedVariables `MindSootheDB`, chat prefix `[Mind Soothe]`, debug prefix, global frame-name stem — is centralized in `addon/Const.lua` and flows from there; `deploy.sh dev` stamps a local-only "Mind Dev" (`/mdev`) twin from the same source. The two internal feature *categories* "ToxFilter" and "Uplifter" are NOT the product name and keep their names. Historical sprint write-ups below predate the rename and still say "ToxFilter" / `/tox` / `ToxFilterDB` / `ToxFilter.lua`; read those as the now-renamed surfaces (`MindSoothe` / `/mind` / `MindSootheDB` / `MindSoothe.lua`). The Sprint 0 test fixtures (`ToxFilterTest:*`, `[ToxEdit]`, `[ToxDel]`) and the internal `ns.ToxFilter*` namespace handles were deliberately left unrenamed (internal, not product identity).
 
 ## What it is
 
@@ -21,24 +21,31 @@ User-facing text — slash command output, system messages, errors, README — i
 **Tonal-violation grep (permanent CI hygiene, every sprint).** Before declaring user-facing string changes done, grep the diff for `!`, `great`, `oops`, `sorry` in any string literal printed via `print(` or `out(`. Cheap; running it consistently keeps drift from accumulating. Self-referential matches (the grep documentation itself, pattern-data tables that legitimately contain words like "great") are acceptable.
 
 Current grep target set:
-`addon/Commands.lua addon/PositiveCapture.lua addon/Stats.lua addon/Grounding.lua addon/ToxFilter.lua addon/Database.lua addon/Buffer.lua addon/PIIScrub.lua addon/Highlight.lua addon/Breathing.lua addon/Ready.lua addon/Debug.lua addon/Callout.lua addon/JournalData.lua addon/TacticReminders.lua addon/PreDungeonData.lua addon/PreDungeon.lua addon/Category.lua addon/Options.lua addon/CombatDrop.lua addon/Fuzzy.lua`
+`addon/Commands.lua addon/PositiveCapture.lua addon/Stats.lua addon/Grounding.lua addon/MindSoothe.lua addon/Const.lua addon/Database.lua addon/Buffer.lua addon/PIIScrub.lua addon/Highlight.lua addon/Breathing.lua addon/Ready.lua addon/Debug.lua addon/Callout.lua addon/JournalData.lua addon/TacticReminders.lua addon/PreDungeonData.lua addon/PreDungeon.lua addon/Category.lua addon/Options.lua addon/CombatDrop.lua addon/Fuzzy.lua`
+
+(As of Sprint 8 `scripts/run-gauntlet.sh` globs `addon/*.lua` minus `Libs/` for the tonal grep and pipe audit, so this list is informational — it no longer has to be kept in lockstep.)
 
 ## Repo layout
 
 ```
 addon/                  WoW addon source — what gets deployed
-  ToxFilter.toc         TOC manifest, Interface 120005 (Midnight retail)
-  ToxFilter.lua         Main addon code
-  Libs/                 Embedded Ace3
+  MindSoothe.toc        TOC manifest, Interface 120005 (Midnight retail)
+  MindSoothe.lua        Main addon code (AceAddon lifecycle, chatFilter dispatch)
+  Const.lua             Single-source identity surface (name/slash/SV/prefix/frame)
+  Libs/                 Embedded Ace3 (third-party; own licenses; GPLv3 carve-out)
   README.md             Pre-release user-facing description
 app/                    Companion app (empty; Build 2)
 corpus/                 Test corpora (sprint2/sprint5 JSON; 5b/5c/5d gating + sprint6 scrub Lua)
 docs/                   Design docs (empty)
 sensitive/              Slur lists / harassment patterns — gitignored
 scripts/
-  deploy.sh             rsync addon/ -> Windows AddOns folder
+  deploy.sh             ship -> AddOns/MindSoothe ; `dev` stamps AddOns/MindDev (local-only)
   run-corpus.sh         host-side corpus + gating test harness
+  run-gauntlet.sh       luacheck + corpus + tonal grep + pipe audit, one command
 .luacheckrc             Lua static analysis config
+.pkgmeta                CurseForge/Wago packager manifest (excludes dev tooling)
+LICENSE                 GPLv3 (Ace3 under Libs/ is third-party, not relicensed)
+CHANGELOG.md            Version history (0.6.0 → 0.8.0)
 CLAUDE.md               This file — current state + active principles
 CLAUDE_ARCHIVE.md       Per-sprint detailed write-ups (historical reference)
 Verification_Protocol.md  In-game verification steps per sprint
@@ -57,7 +64,22 @@ WSL Ubuntu 24.04 → Windows WoW client.
 7. In-game `/reload` (manual — addon never triggers /reload itself).
 8. Verify per `Verification_Protocol.md` section for the current sprint.
 
-## Current state — Build 1 Sprint 7a
+## Current state — Build 1 Sprint 8
+
+Version `0.8.0-sprint8`. Schema **frozen at v11** (no change; the SavedVariables rename is handled by accepting a data reset, NOT migration). Sprint 8 is launch-prep — rename, dual-build, packaging — with no feature/classifier/rule changes. Shipped:
+
+- **Rename to "Mind Soothe"** (working name "ToxFilter" retired). Five identity surfaces: folder `MindSoothe/`, TOC Title `Mind Soothe`, slash `/mind`, SavedVariables `MindSootheDB`, and the addon-name string (`NewAddon`, AceConfig APP token, GUI/Blizzard-menu title, `[Mind Soothe]` chat prefix). The two internal feature *categories* "ToxFilter"/"Uplifter" stay. Sprint 0 fixtures (`ToxFilterTest:*`, `[ToxEdit]`, `[ToxDel]`) and the internal `ns.ToxFilter*` handles (`Addon`/`State`/`Dispatch`) and the file-local `ToxFilter` AceAddon object are deliberately left unrenamed (internal, not product identity).
+- **`addon/Const.lua` — single source** (loaded FIRST in the TOC). Holds `ADDON_NAME`, `DISPLAY_NAME`, `SAVEDVAR`, `SLASH_DISPLAY` (`/mind`; bare `SLASH` derived from it so the dev stamp catches it), `PREFIX`, `DEBUG_PREFIX`, `FRAME_PREFIX`. Every former literal routes here: all `print`/`out` prefixes, the SavedVariables global (now `_G[ns.Const.SAVEDVAR]` dynamic indexing in `Database.lua`/`PIIScrub.lua` — so `.luacheckrc` no longer declares it), `RegisterChatCommand`, the AceConfig APP token, the Blizzard breathing-frame global name (`FRAME_PREFIX .. "BreathingFrame"` — a 5th collision surface, now per-build). **Not centralizable:** the TOC `## Title:`/`## SavedVariables:`/`## Version:` lines (a `.toc` can't read Lua — kept in sync by the same dev-stamp tokens) and the `/mind` mentions in help copy (display text rewritten to literals; the runtime token still derives from `SLASH`).
+- **Version single-sourced** from the TOC `## Version:` via `C_AddOns.GetAddOnMetadata(ns.Const.ADDON_NAME, "Version")`. The hardcoded Lua `VERSION` literal is gone. (`C_AddOns` added to `.luacheckrc`; the corpus pause harness stubs it.)
+- **Dual-build** (`scripts/deploy.sh [ship|dev]`): ship rsyncs `addon/` verbatim to `AddOns/MindSoothe/` (committed tree IS ship identity — directly packageable). `dev` stages a throwaway copy under `.build/` (gitignored), applies THREE substitutions (`MindSoothe→MindDev`, `Mind Soothe→Mind Dev`, `/mind→/mdev`), then renames BOTH `MindSoothe.toc→MindDev.toc` (folder-match requirement) AND `MindSoothe.lua→MindDev.lua` (the stamp rewrote the TOC's `MindSoothe.lua` source-file reference to `MindDev.lua`, so the file on disk must match or WoW silently skips the main module and the addon never registers its slash — the post-deploy dev-build bug, fixed), and rsyncs to `AddOns/MindDev/`. All four-plus collision surfaces differ (folder, Title, slash `SLASH_MIND1`/`SLASH_MDEV1`, SavedVariables, AceAddon/AceConfig registration, frame name) → coexist with zero collision. Dev build is LOCAL-ONLY: never committed, never packaged.
+- **Packaging:** GPLv3 `LICENSE` (verbatim FSF text; Ace3 under `Libs/` is third-party, not relicensed — noted in README), `.pkgmeta` (excludes `scripts/`, `corpus/`, `CLAUDE.md`, docs, `.build`, `sensitive`, `*.bak.*`; `move-folders: MindSoothe: addon` for the subfolder layout), `CHANGELOG.md` (0.6.0→0.8.0), `scripts/run-gauntlet.sh` (luacheck + corpus + tonal grep + pipe audit, exits nonzero on any failure; tonal+pipe scoped to `print(`/`out(` lines over `addon/*.lua` minus `Libs/`). `.gitignore` gains `.build/` + `*.bak.*`.
+- **F1/F2 whisper-note honesty (doc/string only, no code fix):** README no longer claims the one-shot whisper privacy note prints (reworded to a known-limitation note); the `Commands.lua` whisper-note comment is the deferred code fix's territory and untouched beyond the rename. The code path is unchanged this sprint.
+- **TOC Interface** stays `120005`; developer reconfirms against the live patch at upload.
+- Gauntlet green at handoff: luacheck 0/0 (31 files), full corpus 100% (incl. scrub corpus under the renamed SV global and the N12 pause-dispatch under `MindSoothe.lua` + `C_AddOns` stub), tonal grep + pipe audit clean.
+- **In-game verification PASSED (Sprint 8 scope):** both builds install as separate AddOns-list entries with isolated data; ship "Mind Soothe" responds to `/mind` (and not `/mdev`), dev "Mind Dev" responds to `/mdev` (and not `/mind`). The post-deploy dev-build bug above (TOC `MindDev.lua` reference vs on-disk `MindSoothe.lua`) was caught in this verification and fixed before it passed. (Broader per-feature in-game verification — the pending 5b/7a items elsewhere in this doc — is unchanged by Sprint 8.)
+- **Flagged for the developer (not done here):** the stale README body (Sprint-5-era feature copy — listing-copy territory) and the stale `Verification_Protocol.md`; the two leftover `claude/*` branches; the pre-public git-history audit; the GitHub rename + visibility flip; the actual CurseForge/Wago upload. The CHANGELOG's `[Sprint 7b]` entry reflects 7b's *defined scope* — CLAUDE.md's prior "Current state" lagged at 7a, so confirm/adjust whether 7b shipped.
+
+### Prior — Build 1 Sprint 7a
 
 Version `0.7.0-sprint7a-fix`. Schema v11. Shipped in 7a (feature build; 7b is later — classifier tuning, content language polish, full regression pass — do NOT start tuning here). The `-fix` suffix marks the post-verification corrections folded in: emote untargeted-capture removed (N22), the fuzzy length floor hardened to be both-ended in one place (N16), and the fresh-install callout-sound default moved to `8959` ("readycheck2"):
 
@@ -228,7 +250,7 @@ Shipped-sprint detail lives in `CLAUDE_ARCHIVE.md`. Future work:
 - **Sprint 5c content:** pre-dungeon warning data (interrupts/dispels/tips) per the per-dungeon approval workflow; `PREDUNGEON_DATA_VERSION` still 0.
 - **Build 1 Sprint 7a:** feature build — shipped (see Current state). In-game verification still pending.
 - **Build 1 Sprint 7b:** classifier tuning + content language polish + full regression pass with threshold-gate enforcement. Locked targets: slur ≥98%, role_attack ≥90%, harm_invocation ≥95%, identity_attack ≥90%, harassment ≥70%, general_hostility ≥60%, rewrite correctness ≥90%. Tuning pass: under-absorbed neutrals at attack-span edges; spec-name attack detection; absorption-list expansion. (Do not start tuning before 7b.)
-- **Build 1 Sprint 8:** CurseForge distribution pipeline. `METADATA.JOURNAL_DATA_VERSION` enables content-only updates.
+- **Build 1 Sprint 8:** shipped (see Current state) — rename to Mind Soothe, dual-build, packaging (`LICENSE`/`.pkgmeta`/`CHANGELOG.md`/`run-gauntlet.sh`), single-sourced version. In-game verified for the dual-build slash/isolation. **Remaining (developer-handled, not this sprint):** the actual CurseForge/Wago upload + listing copy, the pre-public git-history audit, and the GitHub rename + visibility flip. `METADATA.JOURNAL_DATA_VERSION` still enables future content-only update packaging.
 - **Build 1 Sprint 9:** configuration UI — shipped early as Sprint 6b's options panel; remaining Sprint 9 scope (if any) to be decided.
 - **Build 2:** companion app — LLM-based recap generation, central rule classification.
 - **Build 3:** central rule service.
@@ -264,4 +286,5 @@ Each entry corresponds to a detailed section in `CLAUDE_ARCHIVE.md`. The archive
 - **Sprint 5d** — category master toggles (`Category.lua`): ToxFilter / Uplifter families, `/tox category`, three-layer master→category→feature gate, sub-state preservation, Stats counting ungated while surfacing gated, `/tox off` promoted to addon-wide master; schema v9.
 - **Sprint 6** — PII scrub audit (`PII_Audit_Sprint6.md`, audit-only commit) + remediation: PIIScrub broadened to known-name matching (sender threading, current character, alt roster; precision over recall; B1 collision rule); orphan `feedback_log` removed; schema v10; 18-fixture scrub corpus.
 - **Sprint 6b** — options panel (`Options.lua` + embedded AceGUI/AceConfig): GUI as a view over db state (no parallel store), function-built options table, category greying with preserved sub-state values, `/tox config` + `/tox state`.
-- **Sprint 7a** — feature build (`CombatDrop.lua`, `Fuzzy.lua`; extends `Callout.lua`/`PositiveCapture.lua`/`Commands.lua`/`Options.lua`/`ToxFilter.lua`): silent-drop carve-out for pure hostility (slur/harm only, purity guard, `/tox combat`, default on; **inert post-N12** — paused-branch-only and never invoked in combat, see Current state), selectable callout sound (`SOUND_CHOICES` table, `/tox callout sound set/list/preview`), Damerau-1 typo tolerance scoped to positive/callout keyword sets (length-5 floor, role targets exact-only), and TEXT_EMOTE positive capture (enUS-only, `(emote)` marker). Schema v11 (two fields). **Current sprint.**
+- **Sprint 7a** — feature build (`CombatDrop.lua`, `Fuzzy.lua`; extends `Callout.lua`/`PositiveCapture.lua`/`Commands.lua`/`Options.lua`/`ToxFilter.lua`): silent-drop carve-out for pure hostility (slur/harm only, purity guard, `/tox combat`, default on; **inert post-N12** — paused-branch-only and never invoked in combat, see Current state), selectable callout sound (`SOUND_CHOICES` table, `/tox callout sound set/list/preview`), Damerau-1 typo tolerance scoped to positive/callout keyword sets (length-5 floor, role targets exact-only), and TEXT_EMOTE positive capture (enUS-only, `(emote)` marker). Schema v11 (two fields).
+- **Sprint 8** — launch-prep: rename working name → **Mind Soothe** across the five identity surfaces (folder/Title/slash `/mind`/SavedVariables `MindSootheDB`/addon-name string + `[Mind Soothe]` prefix); centralize the identity into `addon/Const.lua` (single source; frame name now per-build — 5th collision surface); single-source the version via `C_AddOns.GetAddOnMetadata` (TOC `## Version:` only); dual-build `deploy.sh [ship|dev]` (local-only stamped "Mind Dev"/`/mdev` twin, zero collision); packaging (`LICENSE` GPLv3, `.pkgmeta`, `CHANGELOG.md`, `run-gauntlet.sh`); whisper-note doc honesty (no code fix). No schema/feature/classifier change. **Current sprint.**

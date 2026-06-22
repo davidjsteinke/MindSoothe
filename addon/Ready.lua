@@ -1,4 +1,4 @@
--- Sprint 4b: /tox ready meta-orchestration.
+-- Sprint 4b: /mind ready meta-orchestration.
 --
 -- Chains grounding → breathing → lift in user-configured order, respecting
 -- per-step include toggles in db.ready_config. Each step is responsible for
@@ -9,7 +9,7 @@
 --     the duration of the active step; the hook clears module-local chain
 --     state so onComplete (when it later fires) becomes a no-op via the
 --     stale-token check.
---   - /tox check cancel and Esc-on-breathing both flow through the primitives'
+--   - /mind check cancel and Esc-on-breathing both flow through the primitives'
 --     own cancel paths, which fire the hook. Lift is synchronous, no
 --     cancellation point.
 --   - Resetting state instead of nilling-then-checking is the simplest way to
@@ -23,7 +23,7 @@ local KNOWN_STEPS = { grounding = true, breathing = true, lift = true }
 
 local current_chain = nil
 
-local function out(line) print("[ToxFilter] " .. line) end
+local function out(line) print(ns.Const.PREFIX .. line) end
 
 local function db()
     return ns.Database and ns.Database:Get() or nil
@@ -129,7 +129,7 @@ function Ready.Start()
 
     local steps = buildSteps(g)
     if #steps == 0 then
-        out("All ready steps are excluded. Use /tox ready include <step> on.")
+        out("All ready steps are excluded. Use /mind ready include <step> on.")
         return
     end
 

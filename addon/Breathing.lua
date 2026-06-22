@@ -20,6 +20,10 @@ local _, ns = ...
 
 local Breathing = {}
 
+-- Global frame name derives from the per-build identity so two coexisting
+-- installs (ship + dev) never share a _G frame name or UISpecialFrames entry.
+local FRAME_NAME       = ns.Const.FRAME_PREFIX .. "BreathingFrame"
+
 local BLOCK_MIN_SIZE   = 40
 local BLOCK_MAX_SIZE   = 160
 local FRAME_SIZE       = 200
@@ -34,7 +38,7 @@ local function db()
     return ns.Database and ns.Database:Get() or nil
 end
 
-local function out(line) print("[ToxFilter] " .. line) end
+local function out(line) print(ns.Const.PREFIX .. line) end
 
 local function fireCancelHook()
     local cb = cancel_hook
@@ -42,7 +46,7 @@ local function fireCancelHook()
     if cb then
         local ok, err = pcall(cb)
         if not ok then
-            print("[ToxFilter] Breathing cancel hook error: " .. tostring(err))
+            print(ns.Const.PREFIX .. "Breathing cancel hook error: " .. tostring(err))
         end
     end
 end
@@ -84,7 +88,7 @@ local function finish(natural)
         if cb then
             local ok, err = pcall(cb)
             if not ok then
-                print("[ToxFilter] Breathing completion callback error: " .. tostring(err))
+                print(ns.Const.PREFIX .. "Breathing completion callback error: " .. tostring(err))
             end
         end
     end
@@ -116,7 +120,7 @@ end
 
 local function ensureFrame()
     if frame then return frame end
-    frame = CreateFrame("Frame", "ToxFilterBreathingFrame", UIParent, "BackdropTemplate")
+    frame = CreateFrame("Frame", FRAME_NAME, UIParent, "BackdropTemplate")
     frame:SetSize(FRAME_SIZE, FRAME_SIZE)
     frame:SetPoint("CENTER", UIParent, "CENTER", 0, 0)
     frame:SetMovable(true)
@@ -183,13 +187,13 @@ local function ensureFrame()
     if type(_G.UISpecialFrames) == "table" then
         local already = false
         for i = 1, #_G.UISpecialFrames do
-            if _G.UISpecialFrames[i] == "ToxFilterBreathingFrame" then
+            if _G.UISpecialFrames[i] == FRAME_NAME then
                 already = true
                 break
             end
         end
         if not already then
-            tinsert(_G.UISpecialFrames, "ToxFilterBreathingFrame")
+            tinsert(_G.UISpecialFrames, FRAME_NAME)
         end
     end
     return frame
@@ -221,7 +225,7 @@ function Breathing.Run(onComplete)
     end
 
     -- Sprint 4 fix2 (I9): refuse to start during combat. Routes through
-    -- onComplete so a /tox ready chain advances past this step rather than
+    -- onComplete so a /mind ready chain advances past this step rather than
     -- stalling. The frame's PLAYER_REGEN_DISABLED hook (Sprint 4 fix1)
     -- handles the case where combat starts WHILE breathing is running.
     if type(InCombatLockdown) == "function" and InCombatLockdown() then

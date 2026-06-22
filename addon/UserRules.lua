@@ -2,8 +2,8 @@
 --
 -- Storage: db.blacklist and db.whitelist are maps keyed by FNV-1a hash with
 -- the *normalized* token text as value (post Normalize.normalize). This means
--- /tox blacklist add Foo and /tox blacklist add foo collapse to the same
--- entry, and /tox blacklist list shows the canonical normalized form. The
+-- /mind blacklist add Foo and /mind blacklist add foo collapse to the same
+-- entry, and /mind blacklist list shows the canonical normalized form. The
 -- user only ever sees and removes by what they typed, but the table identity
 -- is the hash, matching the hot-path lookup shape of RuleData.
 --

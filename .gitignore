@@ -12,6 +12,12 @@ dist/
 build/
 *.egg-info/
 
+# Dev-build staging (deploy.sh dev stamps the Mind Dev twin here; local-only)
+.build/
+
+# Editor / tooling backups
+*.bak.*
+
 # IDE
 .vscode/
 .idea/

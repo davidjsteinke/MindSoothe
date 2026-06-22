@@ -20,13 +20,15 @@ _G.bit = { bxor = function(a, b)
     return r
 end }
 
--- Minimal WoW globals the live modules + ToxFilter.lua touch.
+-- Minimal WoW globals the live modules + MindSoothe.lua touch.
 _G.ChatFrame_AddMessageEventFilter    = function() end
 _G.ChatFrame_RemoveMessageEventFilter = function() end
 _G.PlaySound        = function(...) _G.__lastSound = select(1, ...); return true end
 _G.UnitName         = function() return "Tester" end
+-- Sprint 8: MindSoothe.lua reads the single-sourced version via C_AddOns at load.
+_G.C_AddOns         = { GetAddOnMetadata = function() return "0.8.0-sprint8" end }
 
--- LibStub / AceAddon stub: enough for the NewAddon call at ToxFilter.lua load.
+-- LibStub / AceAddon stub: enough for the NewAddon call at MindSoothe.lua load.
 local aceAddonObj = setmetatable({}, { __index = function() return function() end end })
 _G.LibStub = function(name)
     if name == "AceAddon-3.0" then
@@ -43,6 +45,7 @@ local function load_module(name)
 end
 
 for _, m in ipairs({
+    "Const.lua",
     "Hash.lua", "Normalize.lua", "Categories.lua", "Patterns.lua", "Fuzzy.lua",
     "RuleData.lua", "Classifier.lua", "Rewrite.lua", "RuleEngine.lua",
     "CombatDrop.lua", "Callout.lua", "PositiveCapture.lua", "Category.lua",
@@ -68,7 +71,7 @@ ns.Database = {
     ResolveHandling   = function() return nil end,
 }
 
-load_module("ToxFilter.lua")
+load_module("MindSoothe.lua")
 
 local D = ns.ToxFilterDispatch
 assert(D and D.chatFilter and D.setPausedForTest, "ToxFilterDispatch test hook missing")

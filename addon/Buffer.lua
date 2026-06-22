@@ -139,7 +139,7 @@ end
 -- the resolved (instance, bucket, field) that just changed.
 local function debugIncrement(g, instance, bucket, field)
     if not g.debug_enabled then return end
-    print(string.format("[ToxFilter Debug] Counter increment: %s / %s / %s",
+    print(string.format(ns.Const.DEBUG_PREFIX .. "Counter increment: %s / %s / %s",
         instance or "?", bucket or "?", field or "?"))
 end
 

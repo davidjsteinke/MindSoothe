@@ -4,7 +4,7 @@
 
 local _, ns = ...
 
-assert(bit and bit.bxor, "[ToxFilter] WoW 'bit' library not available")
+assert(bit and bit.bxor, ns.Const.PREFIX .. "WoW 'bit' library not available")
 
 local bxor = bit.bxor
 local string_byte = string.byte
@@ -33,9 +33,9 @@ local function fnv1a(s)
     return hash
 end
 
-assert(fnv1a("")     == 2166136261, "[ToxFilter] FNV1a self-test failed: empty string")
-assert(fnv1a("a")    == 3826002220, "[ToxFilter] FNV1a self-test failed: 'a'")
-assert(fnv1a("test") == 2949673445, "[ToxFilter] FNV1a self-test failed: 'test'")
+assert(fnv1a("")     == 2166136261, ns.Const.PREFIX .. "FNV1a self-test failed: empty string")
+assert(fnv1a("a")    == 3826002220, ns.Const.PREFIX .. "FNV1a self-test failed: 'a'")
+assert(fnv1a("test") == 2949673445, ns.Const.PREFIX .. "FNV1a self-test failed: 'test'")
 
 ns.Hash = {
     fnv1a = fnv1a,

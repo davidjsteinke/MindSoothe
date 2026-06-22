@@ -47,15 +47,16 @@ read_globals = {
     -- Ace3
     "LibStub",
 
+    -- Sprint 8: addon metadata read for the single-sourced version string.
+    "C_AddOns",
+
     -- WoW exposes the LuaJIT-style bit library at the global scope.
     "bit",
 }
 
-globals = {
-    -- SavedVariables global; AceDB:New manages it but Database.lua touches
-    -- it directly for corruption recovery.
-    "ToxFilterDB",
-}
+-- SavedVariables global (MindSootheDB) is reached only via dynamic
+-- _G[ns.Const.SAVEDVAR] indexing in Database.lua / PIIScrub.lua, so there is no
+-- static global name for luacheck to know about (Sprint 8 centralization).
 
 ignore = {
     "211",  -- unused local (intentional migration placeholder funcs)

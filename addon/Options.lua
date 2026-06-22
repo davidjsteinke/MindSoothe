@@ -1,7 +1,7 @@
 -- Sprint 6b: AceConfig-3.0 options panel. A VIEW over existing db state, never a
 -- parallel store. Every control's get/set reads and writes the SAME db fields
 -- (or calls the SAME ns.* module methods) the slash commands use, so the GUI and
--- /tox slash commands never diverge. There is no GUI-local state.
+-- /mind slash commands never diverge. There is no GUI-local state.
 --
 -- The options table is registered as a FUNCTION (buildOptions), not a static
 -- table. AceConfigRegistry re-invokes it on every fetch/refresh, which gives the
@@ -25,7 +25,10 @@
 
 local _, ns = ...
 
-local APP = "ToxFilter"
+-- AceConfig registration token. Derives from the centralized addon name so the
+-- ship ("MindSoothe") and dev ("MindDev") builds register distinct option tables
+-- in the global AceConfigRegistry (no collision when both are installed).
+local APP = ns.Const.ADDON_NAME
 
 local AceConfig         = LibStub("AceConfig-3.0", true)
 local AceConfigDialog   = LibStub("AceConfigDialog-3.0", true)
@@ -54,7 +57,7 @@ local CATEGORY_ORDER = {
 }
 
 -- DISPLAY-ONLY labels for the handling controls. Keys stay the raw lowercase
--- underscore tokens used by g.handling[cat], the /tox handle <category> path, and
+-- underscore tokens used by g.handling[cat], the /mind handle <category> path, and
 -- the classifier; only the AceConfig control `name` (the visible label) is
 -- prettified. Never use these as keys or stored values.
 local CATEGORY_LABELS = {
@@ -72,7 +75,7 @@ local HANDLING_SORTING = { "default", "pass", "edit", "del", "silent" }
 
 -- DISPLAY-ONLY labels: the table KEYS (auto/tank/healer/dps) are the stored role
 -- tokens AceConfig writes via get/set; only the label strings are capitalized.
--- The slash path (/tox role tank), classifier role matching, and stored g.role
+-- The slash path (/mind role tank), classifier role matching, and stored g.role
 -- all stay lowercase.
 local ROLE_VALUES  = { auto = "Auto", tank = "Tank", healer = "Healer", dps = "DPS" }
 local ROLE_SORTING = { "auto", "tank", "healer", "dps" }
@@ -189,14 +192,14 @@ end
 
 local WHISPER_NOTE = "Whisper filtering enabled. Note: this reads private messages"
     .. " sent to you. Filtered output is shown only to you. Disable with"
-    .. " /tox channel whisper off."
+    .. " /mind channel whisper off."
 
 local function setChannel(name, on)
     local g = db(); if not g then return end
     g.channels[name] = on
     if name == "whisper" and on and ns.Database
         and ns.Database:NoteWhisperIntroIfNeeded() then
-        print("[ToxFilter] " .. WHISPER_NOTE)
+        print(ns.Const.PREFIX .. WHISPER_NOTE)
     end
 end
 
@@ -214,7 +217,7 @@ local function statusText()
     if ns.Database and ns.Database:AllCategoriesPass() then
         parts[#parts + 1] = "every category set to pass (filtering effectively off)"
     end
-    parts[#parts + 1] = "Run /tox state for the full text readout."
+    parts[#parts + 1] = "Run /mind state for the full text readout."
     return table.concat(parts, "  ")
 end
 
@@ -283,7 +286,7 @@ local function buildOptions()
     -- ----- Ready chain (include toggles + order selects) -----
     local readyArgs = {
         inchdr = { type = "description", order = 0,
-                   name = "The /tox ready sequence. Choose which steps run, and in what order.",
+                   name = "The /mind ready sequence. Choose which steps run, and in what order.",
                    fontSize = "medium" },
     }
     for i, step in ipairs(READY_STEPS) do
@@ -313,7 +316,7 @@ local function buildOptions()
     -- ----- Grounding items (NOT category-gated) -----
     local groundingArgs = {
         note = { type = "description", order = 0,
-                 name = "Grounding items for /tox check. This list is not gated by"
+                 name = "Grounding items for /mind check. This list is not gated by"
                      .. " the Uplifter toggle; it stays active regardless.", fontSize = "medium" },
         add = {
             type  = "input",
@@ -336,7 +339,7 @@ local function buildOptions()
 
     return {
         type        = "group",
-        name        = "ToxFilter",
+        name        = ns.Const.DISPLAY_NAME,
         childGroups = "tab",
         args = {
             -- ===== General (master + categories + role, merged) =====
@@ -346,8 +349,8 @@ local function buildOptions()
                     master = {
                         type  = "toggle",
                         order = 1,
-                        name  = "Enable ToxFilter",
-                        desc  = "Master switch for the whole addon. Off turns everything off (same as /tox off).",
+                        name  = "Enable " .. ns.Const.DISPLAY_NAME,
+                        desc  = "Master switch for the whole addon. Off turns everything off (same as /mind off).",
                         get   = function() local gg = db(); return gg and gg.enabled end,
                         set   = function(_, val) local gg = db(); if gg then gg.enabled = val end; notify() end,
                     },
@@ -555,18 +558,18 @@ end
 -- is ready.
 function Options.Register()
     if not (AceConfig and AceConfigDialog) then
-        print("[ToxFilter] Options panel unavailable: AceConfig libraries not loaded.")
+        print(ns.Const.PREFIX .. "Options panel unavailable: AceConfig libraries not loaded.")
         return
     end
     AceConfig:RegisterOptionsTable(APP, buildOptions)
-    AceConfigDialog:AddToBlizOptions(APP, "ToxFilter")
+    AceConfigDialog:AddToBlizOptions(APP, ns.Const.DISPLAY_NAME)
 end
 
 function Options.Open()
     if AceConfigDialog then
         AceConfigDialog:Open(APP)
     else
-        print("[ToxFilter] Options panel unavailable: AceConfig libraries not loaded.")
+        print(ns.Const.PREFIX .. "Options panel unavailable: AceConfig libraries not loaded.")
     end
 end
 

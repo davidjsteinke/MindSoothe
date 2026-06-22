@@ -53,7 +53,7 @@ for k in pairs(PROTECTED_CAPS) do PROTECT[k:lower()] = true end
 local function dbg(fmt, ...)
     local g = ns.Database and ns.Database.Get and ns.Database:Get() or nil
     if not g or not g.debug_enabled then return end
-    print("[ToxFilter Debug] " .. fmt:format(...))
+    print(ns.Const.DEBUG_PREFIX .. fmt:format(...))
 end
 
 -- "Name-Realm" / "Name" -> lowercased "name". Used for both known names and
@@ -76,7 +76,7 @@ local function buildOwnedSet()
         local key = nameKey(UnitName("player"))
         if key then s[key] = true end
     end
-    local svRoot = rawget(_G, "ToxFilterDB")
+    local svRoot = rawget(_G, ns.Const.SAVEDVAR)
     if type(svRoot) == "table" and type(svRoot.profileKeys) == "table" then
         for charKey in pairs(svRoot.profileKeys) do
             -- profileKeys is "Char - Realm"; take the character name.

@@ -9,7 +9,7 @@
 --
 -- Live-vs-invoked distinction: this module's OnEncounterStart /
 -- OnChallengeModeStart drive automatic surfacing during play, gated by
--- db.stats_surface. User-invoked commands (/tox stats, /tox week, /tox stats
+-- db.stats_surface. User-invoked commands (/mind stats, /mind week, /mind stats
 -- <dungeon>) ignore the surface toggle and the threshold — they print the
 -- raw numbers because the user asked.
 
@@ -21,7 +21,7 @@ local function db()
     return ns.Database and ns.Database:Get() or nil
 end
 
-local function out(line) print("[ToxFilter] " .. line) end
+local function out(line) print(ns.Const.PREFIX .. line) end
 
 function Stats.shouldSurfaceWipeRate(rec, threshold_pct)
     if not rec then return true, "first_time" end
@@ -81,7 +81,7 @@ end
 -- actually returns at the moment the surfacing decision is made.
 local function debugStart(g, instance, bucket)
     if not g.debug_enabled then return end
-    print(string.format("[ToxFilter Debug] Encounter start in: '%s' bucket '%s'",
+    print(string.format(ns.Const.DEBUG_PREFIX .. "Encounter start in: '%s' bucket '%s'",
         instance or "?", bucket or "?"))
 end
 
@@ -90,9 +90,9 @@ function Stats.OnEncounterStart(instance, bucket)
     -- Sprint 5d: live stats surfacing is an Uplifter feature. Category (or the
     -- addon master) off → no surfacing. Counting (Buffer:Record*, driven from
     -- ToxFilter's encounter/death/key-complete handlers) is deliberately NOT
-    -- gated — it keeps running so /tox stats stays gap-free when re-enabled.
+    -- gated — it keeps running so /mind stats stays gap-free when re-enabled.
     if not (ns.Category and ns.Category.gate("uplifter")) then
-        if g.debug_enabled then print("[ToxFilter Debug] Stats surfacing: uplifter category off") end
+        if g.debug_enabled then print(ns.Const.DEBUG_PREFIX .. "Stats surfacing: uplifter category off") end
         return
     end
     debugStart(g, instance, bucket)
@@ -113,9 +113,9 @@ function Stats.OnChallengeModeStart(instance, bucket)
     -- Sprint 5d: live stats surfacing is an Uplifter feature. Category (or the
     -- addon master) off → no surfacing. Counting (Buffer:Record*, driven from
     -- ToxFilter's encounter/death/key-complete handlers) is deliberately NOT
-    -- gated — it keeps running so /tox stats stays gap-free when re-enabled.
+    -- gated — it keeps running so /mind stats stays gap-free when re-enabled.
     if not (ns.Category and ns.Category.gate("uplifter")) then
-        if g.debug_enabled then print("[ToxFilter Debug] Stats surfacing: uplifter category off") end
+        if g.debug_enabled then print(ns.Const.DEBUG_PREFIX .. "Stats surfacing: uplifter category off") end
         return
     end
     debugStart(g, instance, bucket)

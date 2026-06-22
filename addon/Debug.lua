@@ -1,8 +1,8 @@
 -- Sprint 4 fix: developer-only counter manipulation.
 --
 -- Hidden behind db.debug_enabled (default false). When the flag is off, the
--- top-level /tox debug verb pretends not to exist (prints "Unknown command")
--- so the public surface stays clean. The single exception is /tox debug
+-- top-level /mind debug verb pretends not to exist (prints "Unknown command")
+-- so the public surface stays clean. The single exception is /mind debug
 -- enable, which always works — otherwise turning the tool on would itself be
 -- gated behind being on.
 --
@@ -19,7 +19,7 @@
 --                                                 until a known bucket token)
 -- Bucket tokens are case-insensitive (m2-5 == M2-5).
 --
--- Tone: factual confirmations, no exclamation. /tox debug counter reset all
+-- Tone: factual confirmations, no exclamation. /mind debug counter reset all
 -- requires a literal `confirm` token rather than a popup.
 
 local _, ns = ...
@@ -38,7 +38,7 @@ local DIFFICULTY_BUCKETS = {
 
 local FIELD_SET = { deaths = true, wipes = true, completions = true }
 
-local function out(line) print("[ToxFilter] " .. line) end
+local function out(line) print(ns.Const.PREFIX .. line) end
 
 local function db()
     return ns.Database and ns.Database:Get() or nil
@@ -191,7 +191,7 @@ local function cmdCounterList(rest)
     for _, n in ipairs(names) do listInstance(instances, n) end
 end
 
--- Module-local guard: /tox debug counter reset all requires a literal confirm
+-- Module-local guard: /mind debug counter reset all requires a literal confirm
 -- token. Avoids a popup; matches the rest of the slash surface.
 local function cmdCounterReset(rest)
     local g = db(); if not g then out("Settings not loaded."); return end
@@ -201,7 +201,7 @@ local function cmdCounterReset(rest)
     if first:lower() == "all" then
         local tail = rest:match("^%S+%s+(.+)$") or ""
         if tail:lower() ~= "confirm" then
-            out("Type '/tox debug counter reset all confirm' to reset all instance counters.")
+            out("Type '/mind debug counter reset all confirm' to reset all instance counters.")
             return
         end
         g.session_buffer.counters.instances = {}
@@ -211,8 +211,8 @@ local function cmdCounterReset(rest)
 
     local instance, bucket, _extra, err = parseInstanceBucket(rest)
     if err then
-        out("Usage: /tox debug counter reset <instance> <difficulty>"
-            .. " || /tox debug counter reset all confirm")
+        out("Usage: /mind debug counter reset <instance> <difficulty>"
+            .. " || /mind debug counter reset all confirm")
         return
     end
     if not instances[instance] or not instances[instance][bucket] then
@@ -227,12 +227,12 @@ end
 local function cmdCounterSet(rest)
     local instance, bucket, after, err = parseInstanceBucket(rest)
     if err then
-        out("Usage: /tox debug counter <instance> <difficulty> <field> <value>")
+        out("Usage: /mind debug counter <instance> <difficulty> <field> <value>")
         return
     end
     local field, valStr = after:match("^(%S+)%s+(%S+)%s*$")
     if not field or not valStr then
-        out("Usage: /tox debug counter <instance> <difficulty> <field> <value>")
+        out("Usage: /mind debug counter <instance> <difficulty> <field> <value>")
         return
     end
     field = field:lower()
@@ -276,36 +276,36 @@ local function cmdSession(rest)
         cmdSessionReset()
         return
     end
-    out("Usage: /tox debug session reset")
+    out("Usage: /mind debug session reset")
 end
 
 local function printHelp()
     out("Debug subcommands:")
-    print("  /tox debug enable || disable")
-    print("  /tox debug version")
-    print("  /tox debug counter <instance> <difficulty> <field> <value>  (count is an alias)")
-    print("  /tox debug counter list [<instance>]")
-    print("  /tox debug counter reset <instance> <difficulty>")
-    print("  /tox debug counter reset all confirm")
-    print("  /tox debug session reset")
+    print("  /mind debug enable || disable")
+    print("  /mind debug version")
+    print("  /mind debug counter <instance> <difficulty> <field> <value>  (count is an alias)")
+    print("  /mind debug counter list [<instance>]")
+    print("  /mind debug counter reset <instance> <difficulty>")
+    print("  /mind debug counter reset all confirm")
+    print("  /mind debug session reset")
     print("  Buckets: normal, heroic, mythic, M0, M2-5, M6-10, M10+")
     print("  Fields: deaths, wipes, completions")
 end
 
 -- Public dispatch entry. Always callable; gates internally on db.debug_enabled
--- so the surface is hidden from /tox help when disabled.
+-- so the surface is hidden from /mind help when disabled.
 function Debug.dispatch(rest)
     rest = rest or ""
     local sub, after = rest:match("^(%S*)%s*(.*)$")
     sub = (sub or ""):lower()
     after = after or ""
 
-    -- /tox debug enable always works so the user can flip the flag without a
+    -- /mind debug enable always works so the user can flip the flag without a
     -- WoW restart. Everything else is silent when disabled.
     if sub == "enable" then cmdEnable(); return end
 
     if not isEnabled() then
-        out("Unknown command 'debug'. Try /tox help.")
+        out("Unknown command 'debug'. Try /mind help.")
         return
     end
 
@@ -314,7 +314,7 @@ function Debug.dispatch(rest)
     if sub == "version" then cmdVersion(); return end
     if sub == "counter" or sub == "count" then cmdCounter(after); return end
     if sub == "session" then cmdSession(after); return end
-    out("Unknown debug subcommand '" .. sub .. "'. Try /tox debug.")
+    out("Unknown debug subcommand '" .. sub .. "'. Try /mind debug.")
 end
 
 ns.Debug = Debug

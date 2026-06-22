@@ -5,7 +5,7 @@
 --
 -- Sprint 3 surfaces only the global (account-wide) scope. Profiles are not
 -- exposed in the slash UI but the door is open: a future sprint can add
--- defaults.profile = {...} and a /tox profile command without rewriting this
+-- defaults.profile = {...} and a /mind profile command without rewriting this
 -- module's wiring.
 
 local _, ns = ...
@@ -63,8 +63,8 @@ local DEFAULTS = {
             order   = { "grounding", "breathing", "lift" },
         },
 
-        -- Sprint 4 fix: developer flag, hidden from /tox help. When false,
-        -- /tox debug pretends to be an unknown command (only /tox debug
+        -- Sprint 4 fix: developer flag, hidden from /mind help. When false,
+        -- /mind debug pretends to be an unknown command (only /mind debug
         -- enable always works, to flip the flag).
         debug_enabled = false,
 
@@ -190,7 +190,7 @@ local migrations = {
                 sessions     = sessions or { history = {} },
                 thanks_total = g.session_buffer.counters.thanks_total or 0,
             }
-            print("[ToxFilter] Migrating counter schema. Previous counter data is reset due to scope changes.")
+            print(ns.Const.PREFIX .. "Migrating counter schema. Previous counter data is reset due to scope changes.")
         end
     end,
     [5] = function(g)
@@ -198,7 +198,7 @@ local migrations = {
         -- intro. Prior testing flipped this bit to true; AceDB only strips
         -- values equal to default, so true persisted across reloads. Force
         -- false here so existing testers see the privacy note on next
-        -- /tox channel whisper on. One-shot reset; safe to drop after launch.
+        -- /mind channel whisper on. One-shot reset; safe to drop after launch.
         g.whisper_intro_shown = false
     end,
     [6] = function(g)
@@ -263,7 +263,7 @@ local function applyMigrations(g)
         if fn then
             local ok, err = pcall(fn, g)
             if not ok then
-                print("[ToxFilter] Migration to schema_version=" .. v
+                print(ns.Const.PREFIX .. "Migration to schema_version=" .. v
                       .. " failed (" .. tostring(err) .. "). Settings preserved at v"
                       .. tostring(g.schema_version or 0) .. ".")
                 return
@@ -275,24 +275,26 @@ end
 
 local Database = {}
 
+local SAVEDVAR = ns.Const.SAVEDVAR
+
 local function freshDB()
-    _G.ToxFilterDB = nil
-    return LibStub("AceDB-3.0"):New("ToxFilterDB", DEFAULTS, true)
+    _G[SAVEDVAR] = nil
+    return LibStub("AceDB-3.0"):New(SAVEDVAR, DEFAULTS, true)
 end
 
 function Database:Init()
     -- Belt-and-suspenders: if the SavedVariables global loaded as a non-table
     -- (corrupted file persisted past WoW's own parse step), AceDB:New would
     -- error. Reset to defaults and continue rather than crashing the addon.
-    local existing = _G.ToxFilterDB
+    local existing = _G[SAVEDVAR]
     if existing ~= nil and type(existing) ~= "table" then
-        print("[ToxFilter] Settings file corrupted, resetting to defaults.")
-        _G.ToxFilterDB = nil
+        print(ns.Const.PREFIX .. "Settings file corrupted, resetting to defaults.")
+        _G[SAVEDVAR] = nil
     end
 
-    local ok, dbObj = pcall(LibStub("AceDB-3.0").New, LibStub("AceDB-3.0"), "ToxFilterDB", DEFAULTS, true)
+    local ok, dbObj = pcall(LibStub("AceDB-3.0").New, LibStub("AceDB-3.0"), SAVEDVAR, DEFAULTS, true)
     if not ok or type(dbObj) ~= "table" then
-        print("[ToxFilter] Settings file corrupted, resetting to defaults.")
+        print(ns.Const.PREFIX .. "Settings file corrupted, resetting to defaults.")
         dbObj = freshDB()
     end
 
@@ -345,7 +347,7 @@ function Database:NoteWhisperIntroIfNeeded()
     return true
 end
 
--- Soft-disabled detection for /tox status: every category resolved to "pass"
+-- Soft-disabled detection for /mind status: every category resolved to "pass"
 -- means filtering won't visibly fire even though `enabled` is true.
 function Database:AllCategoriesPass()
     local Categories = ns.Categories

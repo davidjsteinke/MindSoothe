@@ -1,5 +1,5 @@
 -- Category → handling mapping. Sprint 3 will let users override HANDLING via
--- /tox handle <category> <pass|edit|del|silent>; keep this table the single
+-- /mind handle <category> <pass|edit|del|silent>; keep this table the single
 -- source of truth so that override is a one-line change.
 
 local _, ns = ...

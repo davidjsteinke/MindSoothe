@@ -12,7 +12,7 @@ local _, ns = ...
 local Commands = {}
 
 -- Channels exposed to the user. CHANNEL_ORDER lists the canonical keys in the
--- order they appear in /tox channel list. `party` is a backward-compatible
+-- order they appear in /mind channel list. `party` is a backward-compatible
 -- input alias for `instance` (Sprint 4 fix Issue 2): WoW retail no longer
 -- routes /p separately, so the canonical key is `instance` and the list view
 -- annotates it with "(also: party)" so old habits keep working.
@@ -23,7 +23,7 @@ local function canonicalChannel(name)
     return CHANNEL_CANONICAL[name] or name
 end
 
--- Categories exposed to /tox handle. Order controls list output.
+-- Categories exposed to /mind handle. Order controls list output.
 local CATEGORY_ORDER = {
     "identity_attack", "slur", "role_attack",
     "harassment", "harm_invocation", "general_hostility",
@@ -31,7 +31,7 @@ local CATEGORY_ORDER = {
 
 -- Real handlings consumed by the resolver. "default" is meta — see HANDLING_INPUT.
 local HANDLING_SET = { pass = true, edit = true, del = true, silent = true }
--- Set of values accepted by /tox handle as the <mode> argument. "default" is
+-- Set of values accepted by /mind handle as the <mode> argument. "default" is
 -- a meta-handling: it never reaches RuleEngine.classify's resolver because we
 -- delete the override before resolution runs. Keeps the resolver contract
 -- clean: resolver only ever sees pass/edit/del/silent.
@@ -40,7 +40,7 @@ local HANDLING_INPUT = { pass = true, edit = true, del = true, silent = true, de
 local ROLE_ORDER = { "auto", "tank", "healer", "dps" }
 local ROLE_SET   = { auto = true, tank = true, healer = true, dps = true }
 
-local function out(line) print("[ToxFilter] " .. line) end
+local function out(line) print(ns.Const.PREFIX .. line) end
 
 local function db()
     return ns.Database and ns.Database:Get()
@@ -99,7 +99,7 @@ end
 -- gates lives only in chatFilter's paused branch, which the game never invokes in
 -- combat (N12), and it is not wired into the non-paused path — so the toggle has
 -- no current effect. Kept (DEFAULT ON) for a possible future out-of-combat home.
--- No-arg shows state (mirrors /tox callout / /tox reminders).
+-- No-arg shows state (mirrors /mind callout / /mind reminders).
 function Commands.combat(rest)
     local g = db(); if not g then return end
     local sub = (rest:match("^(%S*)") or ""):lower()
@@ -113,7 +113,7 @@ function Commands.combat(rest)
     end
     if sub == "on" then
         g.combat_silent_drop = true
-        out("Combat silent-drop enabled (no current effect; see /tox combat).")
+        out("Combat silent-drop enabled (no current effect; see /mind combat).")
         return
     end
     if sub == "off" then
@@ -121,7 +121,7 @@ function Commands.combat(rest)
         out("Combat silent-drop disabled.")
         return
     end
-    out("Usage: /tox combat || /tox combat on||off")
+    out("Usage: /mind combat || /mind combat on||off")
 end
 
 -- ===== Channel toggles =====
@@ -146,7 +146,7 @@ end
 function Commands.channel(rest)
     local arg1, arg2 = rest:match("^(%S+)%s*(%S*)$")
     if not arg1 or arg1 == "" then
-        out("Usage: /tox channel <name> on||off || /tox channel list")
+        out("Usage: /mind channel <name> on||off || /mind channel list")
         return
     end
     if arg1 == "list" then channelList(); return end
@@ -172,7 +172,7 @@ function Commands.channel(rest)
 
     local turn = arg2:lower()
     if turn ~= "on" and turn ~= "off" then
-        out("Usage: /tox channel " .. name .. " on||off")
+        out("Usage: /mind channel " .. name .. " on||off")
         return
     end
 
@@ -181,7 +181,7 @@ function Commands.channel(rest)
 
     if canonical == "whisper" and newState and ns.Database:NoteWhisperIntroIfNeeded() then
         out("Whisper filtering enabled. Note: this reads private messages sent to you."
-            .. " Filtered output is shown only to you. Disable with /tox channel whisper off.")
+            .. " Filtered output is shown only to you. Disable with /mind channel whisper off.")
     else
         local label = (canonical ~= name)
             and ("Channel '" .. canonical .. "' (" .. name .. " alias)")
@@ -221,9 +221,9 @@ end
 function Commands.handle(rest)
     local arg1, arg2 = rest:match("^(%S+)%s*(%S*)$")
     if not arg1 or arg1 == "" then
-        out("Usage: /tox handle <category> <pass||edit||del||silent||default>"
-            .. " || /tox handle <category> || /tox handle list"
-            .. " || /tox handle all <handling>")
+        out("Usage: /mind handle <category> <pass||edit||del||silent||default>"
+            .. " || /mind handle <category> || /mind handle list"
+            .. " || /mind handle all <handling>")
         return
     end
     if arg1 == "list" then handleList(); return end
@@ -231,12 +231,12 @@ function Commands.handle(rest)
     local cat = arg1:lower()
     local mode = arg2:lower()
 
-    -- Batch shorthand: /tox handle all <mode> applies <mode> to every category
+    -- Batch shorthand: /mind handle all <mode> applies <mode> to every category
     -- in CATEGORY_ORDER. Silent-drop note is emitted once after the summary,
     -- not per-category, to avoid spam.
     if cat == "all" then
         if mode == "" then
-            out("Usage: /tox handle all <pass||edit||del||silent||default>")
+            out("Usage: /mind handle all <pass||edit||del||silent||default>")
             return
         end
         if not HANDLING_INPUT[mode] then
@@ -318,7 +318,7 @@ local function listSubcommand(listName, displayName, rest)
     word = (word or ""):match("^%s*(.-)%s*$") or ""
 
     if sub == "" then
-        out("Usage: /tox " .. listName .. " add||remove||list <word>")
+        out("Usage: /mind " .. listName .. " add||remove||list <word>")
         return
     end
 
@@ -336,12 +336,12 @@ local function listSubcommand(listName, displayName, rest)
     end
 
     if sub ~= "add" and sub ~= "remove" then
-        out("Usage: /tox " .. listName .. " add||remove||list <word>")
+        out("Usage: /mind " .. listName .. " add||remove||list <word>")
         return
     end
 
     if word == "" then
-        out("Usage: /tox " .. listName .. " " .. sub .. " <word>")
+        out("Usage: /mind " .. listName .. " " .. sub .. " <word>")
         return
     end
 
@@ -486,136 +486,136 @@ end
 -- Pipes are doubled to "||" so WoW's chat-frame escape parser doesn't consume
 -- them as color-reset (|r) or other escapes. The user sees a single pipe.
 local HELP_GROUPS = {
-    { "Filtering", "/tox on || /tox off || /tox status || /tox combat on||off" },
-    { "Category",  "/tox category || /tox category toxfilter on||off || /tox category uplifter on||off" },
-    { "Channels",  "/tox channel <name> on||off || /tox channel list" },
-    { "Handling",  "/tox handle <category> <pass||edit||del||silent||default>"
-                .. " || /tox handle all <handling> || /tox handle list" },
-    { "Lists",     "/tox blacklist <add||remove||list> [word]"
-                .. " || /tox whitelist <add||remove||list> [word]" },
-    { "Role",      "/tox role <auto||tank||healer||dps>" },
-    { "Surface",   "/tox lift || /tox positive [ui [on||off]] || /tox session" },
-    { "Stats",     "/tox stats [<dungeon>||threshold <N>||surface on||off] || /tox week" },
-    { "Pinned",    "/tox star <id> || /tox unstar <id> || /tox starred" },
-    { "Ritual",    "/tox check [add||remove||list||y||n||cancel] [item]" },
-    { "Callout",   "/tox callout || /tox callout on||off"
-                .. " || /tox callout ui on||off"
-                .. " || /tox callout sound on||off||set <name>||list||preview <name>" },
-    { "Reminders", "/tox reminders || /tox reminders on||off || /tox reminders reset" },
-    { "Warnings",  "/tox warnings || /tox warnings on||off || /tox warnings reset" },
-    { "Breathe",   "/tox breathe || /tox breathe cycles <N>"
-                .. " || /tox breathe count <N> || /tox breathe position <x> <y>" },
-    { "Ready",     "/tox ready || /tox ready list || /tox ready cancel"
-                .. " || /tox ready include <step> on||off"
-                .. " || /tox ready order <step> <step> <step>" },
-    { "Buffer",    "/tox retention <days>" },
-    { "Config",    "/tox config || /tox state" },
-    { "Inspect",   "/tox version || /tox rules || /tox list"
-                .. " || /tox test <msg> || /tox classify <msg> || /tox rewrite <msg>" },
-    { "Help",      "/tox help || /tox help <command>" },
+    { "Filtering", "/mind on || /mind off || /mind status || /mind combat on||off" },
+    { "Category",  "/mind category || /mind category toxfilter on||off || /mind category uplifter on||off" },
+    { "Channels",  "/mind channel <name> on||off || /mind channel list" },
+    { "Handling",  "/mind handle <category> <pass||edit||del||silent||default>"
+                .. " || /mind handle all <handling> || /mind handle list" },
+    { "Lists",     "/mind blacklist <add||remove||list> [word]"
+                .. " || /mind whitelist <add||remove||list> [word]" },
+    { "Role",      "/mind role <auto||tank||healer||dps>" },
+    { "Surface",   "/mind lift || /mind positive [ui [on||off]] || /mind session" },
+    { "Stats",     "/mind stats [<dungeon>||threshold <N>||surface on||off] || /mind week" },
+    { "Pinned",    "/mind star <id> || /mind unstar <id> || /mind starred" },
+    { "Ritual",    "/mind check [add||remove||list||y||n||cancel] [item]" },
+    { "Callout",   "/mind callout || /mind callout on||off"
+                .. " || /mind callout ui on||off"
+                .. " || /mind callout sound on||off||set <name>||list||preview <name>" },
+    { "Reminders", "/mind reminders || /mind reminders on||off || /mind reminders reset" },
+    { "Warnings",  "/mind warnings || /mind warnings on||off || /mind warnings reset" },
+    { "Breathe",   "/mind breathe || /mind breathe cycles <N>"
+                .. " || /mind breathe count <N> || /mind breathe position <x> <y>" },
+    { "Ready",     "/mind ready || /mind ready list || /mind ready cancel"
+                .. " || /mind ready include <step> on||off"
+                .. " || /mind ready order <step> <step> <step>" },
+    { "Buffer",    "/mind retention <days>" },
+    { "Config",    "/mind config || /mind state" },
+    { "Inspect",   "/mind version || /mind rules || /mind list"
+                .. " || /mind test <msg> || /mind classify <msg> || /mind rewrite <msg>" },
+    { "Help",      "/mind help || /mind help <command>" },
 }
 
 local HELP_COMMANDS = {
-    on        = "/tox on — enable filtering globally.",
-    off       = "/tox off — disable filtering globally."
-             .. " Rule engine still runs for /tox test/classify/rewrite.",
-    status    = "/tox status — Active, Disabled, or Paused (combat window)."
+    on        = "/mind on — enable filtering globally.",
+    off       = "/mind off — disable filtering globally."
+             .. " Rule engine still runs for /mind test/classify/rewrite.",
+    status    = "/mind status — Active, Disabled, or Paused (combat window)."
              .. " Notes a category master that is off.",
-    combat    = "/tox combat — show the combat silent-drop toggle state."
-             .. " /tox combat on||off toggles it (default on), but it currently"
+    combat    = "/mind combat — show the combat silent-drop toggle state."
+             .. " /mind combat on||off toggles it (default on), but it currently"
              .. " has no effect: the carve-out runs only during the combat pause,"
              .. " which the game does not invoke. Kept for a possible future"
              .. " out-of-combat home.",
-    category  = "/tox category — show both category master states."
-             .. " /tox category toxfilter on||off gates the chat-hygiene family"
+    category  = "/mind category — show both category master states."
+             .. " /mind category toxfilter on||off gates the chat-hygiene family"
              .. " (filtering, handling, blacklist, rewrite, test fixtures)."
-             .. " /tox category uplifter on||off gates the confidence family"
+             .. " /mind category uplifter on||off gates the confidence family"
              .. " (capture, highlight, callouts, reminders, warnings, stats surfacing)."
              .. " Per-feature toggles are preserved across category off then on."
-             .. " User-invoked commands (/tox lift, /tox stats, /tox breathe, etc.)"
+             .. " User-invoked commands (/mind lift, /mind stats, /mind breathe, etc.)"
              .. " still work when a category is off; only passive surfacing stops."
-             .. " /tox off remains the addon-wide master above both categories.",
-    channel   = "/tox channel <name> on||off — toggle a channel."
-             .. " /tox channel list — show all (with master state)."
+             .. " /mind off remains the addon-wide master above both categories.",
+    channel   = "/mind channel <name> on||off — toggle a channel."
+             .. " /mind channel list — show all (with master state)."
              .. " Channels: raid, instance, battleground, whisper. 'party' is an"
              .. " alias for instance (WoW retail folds /p into instance chat)."
              .. " Whisper defaults to off — private 1:1 messages are not filtered unless you opt in.",
-    handle    = "/tox handle <category> <mode> — override default handling."
+    handle    = "/mind handle <category> <mode> — override default handling."
              .. " Modes: pass, edit, del, silent, default (default clears the override)."
              .. " Categories: identity_attack, slur, role_attack, harassment,"
              .. " harm_invocation, general_hostility."
-             .. " /tox handle all <mode> — apply a mode to every category at once."
-             .. " /tox handle list — show current map.",
-    role      = "/tox role <auto||tank||healer||dps> — set or override role."
+             .. " /mind handle all <mode> — apply a mode to every category at once."
+             .. " /mind handle list — show current map.",
+    role      = "/mind role <auto||tank||healer||dps> — set or override role."
              .. " 'auto' uses spec detection.",
-    blacklist = "/tox blacklist add <word> — add a user-defined word."
+    blacklist = "/mind blacklist add <word> — add a user-defined word."
              .. " Hits route to edit handling regardless of category default."
              .. " remove / list also supported.",
-    whitelist = "/tox whitelist add <word> — exempt a word from rule-engine matching."
+    whitelist = "/mind whitelist add <word> — exempt a word from rule-engine matching."
              .. " remove / list also supported.",
-    list      = "/tox list — comprehensive snapshot of every setting.",
-    state     = "/tox state — dense one-block readout of every toggle layer"
+    list      = "/mind list — comprehensive snapshot of every setting.",
+    state     = "/mind state — dense one-block readout of every toggle layer"
              .. " (master, both category masters, per-feature toggles, channels, role)."
-             .. " Faster than /tox list for an in-combat check.",
-    config    = "/tox config — open the graphical options panel"
+             .. " Faster than /mind list for an in-combat check.",
+    config    = "/mind config — open the graphical options panel"
              .. " (also under Esc, Options, AddOns). The panel is a view over the"
              .. " same state these slash commands use; changes stay in sync.",
-    version   = "/tox version — print the addon version.",
-    rules     = "/tox rules — print rule-data version, generation timestamp, counts.",
-    test      = "/tox test <message> — show what handling/category the rule engine assigns.",
-    classify  = "/tox classify <message> — print attack/tactical span breakdown plus signals.",
-    rewrite   = "/tox rewrite <message> — show the rendered output the user would see.",
-    lift      = "/tox lift — print the most recent positive moment captured. Works during"
+    version   = "/mind version — print the addon version.",
+    rules     = "/mind rules — print rule-data version, generation timestamp, counts.",
+    test      = "/mind test <message> — show what handling/category the rule engine assigns.",
+    classify  = "/mind classify <message> — print attack/tactical span breakdown plus signals.",
+    rewrite   = "/mind rewrite <message> — show the rendered output the user would see.",
+    lift      = "/mind lift — print the most recent positive moment captured. Works during"
              .. " combat-pause windows; it's user-invoked, not live filtering.",
-    positive  = "/tox positive — print the 10 most recent positive moments."
-             .. " /tox positive ui — toggle the in-line highlight (or pass on||off to set explicitly).",
-    session   = "/tox session — current play-session detail (start time, encounters, deaths, thanks)."
-             .. " For lifetime aggregates use /tox stats.",
-    stats     = "/tox stats — lifetime aggregate counters across every instance."
-             .. " For the current play session only, use /tox session."
-             .. " /tox stats <instance> — per-bucket record (substring match on instance name)."
-             .. " /tox stats threshold <0-100> — wipe-rate threshold for live surfacing."
-             .. " /tox stats surface on||off — toggle live encounter/dungeon stat surfacing.",
-    week      = "/tox week — last 7 days summary computed from the activity log.",
-    star      = "/tox star <id> — pin a positive moment by its pm_NNN id."
+    positive  = "/mind positive — print the 10 most recent positive moments."
+             .. " /mind positive ui — toggle the in-line highlight (or pass on||off to set explicitly).",
+    session   = "/mind session — current play-session detail (start time, encounters, deaths, thanks)."
+             .. " For lifetime aggregates use /mind stats.",
+    stats     = "/mind stats — lifetime aggregate counters across every instance."
+             .. " For the current play session only, use /mind session."
+             .. " /mind stats <instance> — per-bucket record (substring match on instance name)."
+             .. " /mind stats threshold <0-100> — wipe-rate threshold for live surfacing."
+             .. " /mind stats surface on||off — toggle live encounter/dungeon stat surfacing.",
+    week      = "/mind week — last 7 days summary computed from the activity log.",
+    star      = "/mind star <id> — pin a positive moment by its pm_NNN id."
              .. " Pinned moments survive retention pruning. Cap 100; oldest unpins on overflow.",
-    unstar    = "/tox unstar <id> — unpin a moment.",
-    starred   = "/tox starred — list all pinned moments (chronological).",
-    check     = "/tox check — start the grounding ritual."
-             .. " /tox check add <item> / /tox check remove <item> / /tox check list manage items."
-             .. " /tox check y / /tox check n advance the ritual."
-             .. " /tox check cancel aborts. Default item list is empty.",
-    callout   = "/tox callout — show current callout state."
-             .. " /tox callout on||off toggles the master switch (off by default)."
-             .. " /tox callout ui on||off — visual amber tint when a callout addresses your role."
-             .. " /tox callout sound on||off — audio cue at the same moment."
-             .. " /tox callout sound set <name> picks the cue; list shows the"
+    unstar    = "/mind unstar <id> — unpin a moment.",
+    starred   = "/mind starred — list all pinned moments (chronological).",
+    check     = "/mind check — start the grounding ritual."
+             .. " /mind check add <item> / /mind check remove <item> / /mind check list manage items."
+             .. " /mind check y / /mind check n advance the ritual."
+             .. " /mind check cancel aborts. Default item list is empty.",
+    callout   = "/mind callout — show current callout state."
+             .. " /mind callout on||off toggles the master switch (off by default)."
+             .. " /mind callout ui on||off — visual amber tint when a callout addresses your role."
+             .. " /mind callout sound on||off — audio cue at the same moment."
+             .. " /mind callout sound set <name> picks the cue; list shows the"
              .. " choices; preview <name> plays one once. Callouts fire during"
              .. " combat too (time-critical).",
-    reminders = "/tox reminders — show current reminders state and journal coverage."
-             .. " /tox reminders on||off toggles pre-encounter tactical reminders (off by default)."
-             .. " /tox reminders reset clears the session's seen-encounter map so reminders re-surface."
+    reminders = "/mind reminders — show current reminders state and journal coverage."
+             .. " /mind reminders on||off toggles pre-encounter tactical reminders (off by default)."
+             .. " /mind reminders reset clears the session's seen-encounter map so reminders re-surface."
              .. " Reminders fire once per (instance, encounter, difficulty) per session;"
              .. " the seen-map clears automatically on /reload.",
-    warnings  = "/tox warnings — show current warnings state and instance coverage."
-             .. " /tox warnings on||off toggles per-key pre-dungeon warnings (off by default)."
-             .. " /tox warnings reset clears the session's seen-instance map so warnings re-surface."
+    warnings  = "/mind warnings — show current warnings state and instance coverage."
+             .. " /mind warnings on||off toggles per-key pre-dungeon warnings (off by default)."
+             .. " /mind warnings reset clears the session's seen-instance map so warnings re-surface."
              .. " Warnings fire once per dungeon per session at the Mythic+ countdown"
              .. " (interrupts, dispels, tips for your role); the seen-map clears on /reload.",
-    breathe   = "/tox breathe — run the box-breathing animation."
-             .. " /tox breathe cycles <1-20> sets cycle count (default 4)."
-             .. " /tox breathe count <1-20> sets seconds per phase (default 4)."
-             .. " /tox breathe position <x> <y> sets frame offset; reset to recenter."
+    breathe   = "/mind breathe — run the box-breathing animation."
+             .. " /mind breathe cycles <1-20> sets cycle count (default 4)."
+             .. " /mind breathe count <1-20> sets seconds per phase (default 4)."
+             .. " /mind breathe position <x> <y> sets frame offset; reset to recenter."
              .. " Esc closes the frame.",
-    ready     = "/tox ready — chain grounding then breathing then lift in user-configured order."
-             .. " /tox ready list shows the current chain."
-             .. " /tox ready cancel aborts the active chain regardless of step."
-             .. " /tox ready include <step> on||off toggles a step."
-             .. " /tox ready order <step> <step> <step> reorders."
-             .. " /tox check cancel or Esc on the breathing frame also aborts the chain.",
-    retention = "/tox retention <days> — set windowed-event retention (7-365). Default 30."
+    ready     = "/mind ready — chain grounding then breathing then lift in user-configured order."
+             .. " /mind ready list shows the current chain."
+             .. " /mind ready cancel aborts the active chain regardless of step."
+             .. " /mind ready include <step> on||off toggles a step."
+             .. " /mind ready order <step> <step> <step> reorders."
+             .. " /mind check cancel or Esc on the breathing frame also aborts the chain.",
+    retention = "/mind retention <days> — set windowed-event retention (7-365). Default 30."
              .. " Pinned moments are exempt from pruning.",
-    help      = "/tox help — show grouped command summary. /tox help <command> — details for one command.",
+    help      = "/mind help — show grouped command summary. /mind help <command> — details for one command.",
 }
 
 function Commands.help(rest)
@@ -630,26 +630,26 @@ function Commands.help(rest)
     arg = arg:lower()
     local detail = HELP_COMMANDS[arg]
     if not detail then
-        out("No help for '" .. arg .. "'. Try /tox help.")
+        out("No help for '" .. arg .. "'. Try /mind help.")
         return
     end
     out(detail)
 end
 
 function Commands.summary()
-    out("Commands: /tox on || /tox off || /tox status || /tox channel ... || /tox handle ..."
-        .. " || /tox role ... || /tox blacklist ... || /tox whitelist ..."
-        .. " || /tox lift || /tox positive ... || /tox session"
-        .. " || /tox stats ... || /tox week || /tox star ... || /tox starred"
-        .. " || /tox check ... || /tox breathe ... || /tox ready ..."
-        .. " || /tox callout ..."
-        .. " || /tox reminders ..."
-        .. " || /tox warnings ..."
-        .. " || /tox category ..."
-        .. " || /tox config || /tox state"
-        .. " || /tox retention ... || /tox list"
-        .. " || /tox version || /tox rules || /tox test <msg> || /tox classify <msg>"
-        .. " || /tox rewrite <msg> || /tox help")
+    out("Commands: /mind on || /mind off || /mind status || /mind channel ... || /mind handle ..."
+        .. " || /mind role ... || /mind blacklist ... || /mind whitelist ..."
+        .. " || /mind lift || /mind positive ... || /mind session"
+        .. " || /mind stats ... || /mind week || /mind star ... || /mind starred"
+        .. " || /mind check ... || /mind breathe ... || /mind ready ..."
+        .. " || /mind callout ..."
+        .. " || /mind reminders ..."
+        .. " || /mind warnings ..."
+        .. " || /mind category ..."
+        .. " || /mind config || /mind state"
+        .. " || /mind retention ... || /mind list"
+        .. " || /mind version || /mind rules || /mind test <msg> || /mind classify <msg>"
+        .. " || /mind rewrite <msg> || /mind help")
 end
 
 -- ===== Inspect commands (carried forward from Sprints 1 & 2) =====
@@ -681,7 +681,7 @@ end
 
 function Commands.test(rest)
     if not rest or rest == "" then
-        out("Usage: /tox test <message>")
+        out("Usage: /mind test <message>")
         return
     end
     local result = ns.RuleEngine.classify(rest, function(cat) return ns.Database:ResolveHandling(cat) end)
@@ -720,7 +720,7 @@ end
 
 function Commands.classify(rest)
     if not rest or rest == "" then
-        out("Usage: /tox classify <message>")
+        out("Usage: /mind classify <message>")
         return
     end
     local result = ns.RuleEngine.classify(rest, function(cat) return ns.Database:ResolveHandling(cat) end)
@@ -737,7 +737,7 @@ end
 
 function Commands.rewrite(rest)
     if not rest or rest == "" then
-        out("Usage: /tox rewrite <message>")
+        out("Usage: /mind rewrite <message>")
         return
     end
     local result = ns.RuleEngine.classify(rest, function(cat) return ns.Database:ResolveHandling(cat) end)
@@ -795,7 +795,7 @@ function Commands.positive(rest)
             return
         end
         if after ~= "on" and after ~= "off" then
-            out("Usage: /tox positive ui [on||off]")
+            out("Usage: /mind positive ui [on||off]")
             return
         end
         g.positive_ui = (after == "on")
@@ -803,7 +803,7 @@ function Commands.positive(rest)
         return
     end
     if sub ~= "" then
-        out("Usage: /tox positive [ui [on||off]]")
+        out("Usage: /mind positive [ui [on||off]]")
         return
     end
     if not (ns.Buffer and ns.Buffer.GetPositiveMoments) then
@@ -837,9 +837,9 @@ function Commands.session()
 end
 
 -- Sprint 4 fix Issue 6: instance scope only. Battleground/arena/world deaths
--- aren't tracked at all, so /tox stats is purely a dungeon-and-raid summary.
+-- aren't tracked at all, so /mind stats is purely a dungeon-and-raid summary.
 -- The no-arg form aggregates across all (instance, bucket) pairs into a
--- single line and points at /tox stats <instance> for the per-bucket
+-- single line and points at /mind stats <instance> for the per-bucket
 -- breakdown.
 local function statsAggregate()
     local g = db(); if not g then return end
@@ -866,7 +866,7 @@ local function statsAggregate()
         print(string.format("  instance deaths:    %d", total_deaths))
         print(string.format("  instance attempts:  %d (%d completed, %d wiped)",
             total_completions + total_wipes, total_completions, total_wipes))
-        print(string.format("  instances tracked:  %d (use /tox stats <name> for breakdown)",
+        print(string.format("  instances tracked:  %d (use /mind stats <name> for breakdown)",
             instance_count))
     end
     print(string.format("  threshold:          %d%%, surface: %s",
@@ -885,7 +885,7 @@ local function statsByInstance(query)
     end
     if #matches == 0 then
         out("No instance named '" .. query .. "' found."
-            .. " Use /tox session for current-session stats.")
+            .. " Use /mind session for current-session stats.")
         return
     end
     table.sort(matches, function(a, b) return a.name < b.name end)
@@ -911,7 +911,7 @@ function Commands.stats(rest)
         end
         local n = tonumber(arg2)
         if not n or n < 0 or n > 100 then
-            out("Usage: /tox stats threshold <0-100>")
+            out("Usage: /mind stats threshold <0-100>")
             return
         end
         local g = db(); if not g then return end
@@ -927,7 +927,7 @@ function Commands.stats(rest)
             return
         end
         if arg2 ~= "on" and arg2 ~= "off" then
-            out("Usage: /tox stats surface on||off")
+            out("Usage: /mind stats surface on||off")
             return
         end
         local g = db(); if not g then return end
@@ -957,7 +957,7 @@ end
 
 function Commands.star(rest)
     local id = rest:match("^(%S+)") or ""
-    if id == "" then out("Usage: /tox star <id>"); return end
+    if id == "" then out("Usage: /mind star <id>"); return end
     if not (ns.Buffer and ns.Buffer.Pin) then out("Buffer not loaded."); return end
     local pinned, err, evicted_id = ns.Buffer:Pin(id)
     if pinned then
@@ -977,7 +977,7 @@ end
 
 function Commands.unstar(rest)
     local id = rest:match("^(%S+)") or ""
-    if id == "" then out("Usage: /tox unstar <id>"); return end
+    if id == "" then out("Usage: /mind unstar <id>"); return end
     if not (ns.Buffer and ns.Buffer.Unpin) then out("Buffer not loaded."); return end
     local ok, err = ns.Buffer:Unpin(id)
     if ok then
@@ -1024,7 +1024,7 @@ function Commands.check(rest)
     if sub == "list" then
         local items = ns.Grounding.ListItems()
         if #items == 0 then
-            out("No grounding items configured. Add items via /tox check add <item>.")
+            out("No grounding items configured. Add items via /mind check add <item>.")
             return
         end
         out(string.format("Grounding items (%d):", #items))
@@ -1032,7 +1032,7 @@ function Commands.check(rest)
         return
     end
     if sub == "add" then
-        if after == "" then out("Usage: /tox check add <item>"); return end
+        if after == "" then out("Usage: /mind check add <item>"); return end
         local ok, err = ns.Grounding.AddItem(after)
         if ok then out("Grounding item added: " .. after)
         elseif err == "duplicate" then out("Grounding item already exists: " .. after)
@@ -1041,7 +1041,7 @@ function Commands.check(rest)
         return
     end
     if sub == "remove" then
-        if after == "" then out("Usage: /tox check remove <item>"); return end
+        if after == "" then out("Usage: /mind check remove <item>"); return end
         local ok, err = ns.Grounding.RemoveItem(after)
         if ok then out("Grounding item removed: " .. after)
         elseif err == "absent" then out("Grounding item not found: " .. after)
@@ -1050,7 +1050,7 @@ function Commands.check(rest)
         return
     end
 
-    out("Usage: /tox check [add||remove||list||y||n||cancel] [item]")
+    out("Usage: /mind check [add||remove||list||y||n||cancel] [item]")
 end
 
 -- ===== Sprint 4b: breathing + ready orchestration =====
@@ -1081,7 +1081,7 @@ function Commands.breathe(rest)
         end
         local n = tonumber(arg1)
         if not n or n < 1 or n > 20 then
-            out("Usage: /tox breathe cycles <1-20>")
+            out("Usage: /mind breathe cycles <1-20>")
             return
         end
         g.breathe_cycles = math.floor(n)
@@ -1097,7 +1097,7 @@ function Commands.breathe(rest)
         end
         local n = tonumber(arg1)
         if not n or n < 1 or n > 20 then
-            out("Usage: /tox breathe count <1-20>")
+            out("Usage: /mind breathe count <1-20>")
             return
         end
         g.breathe_count = math.floor(n)
@@ -1115,7 +1115,7 @@ function Commands.breathe(rest)
         local x = tonumber(arg1)
         local y = tonumber(arg2)
         if not x or not y then
-            out("Usage: /tox breathe position <x> <y> || /tox breathe position reset")
+            out("Usage: /mind breathe position <x> <y> || /mind breathe position reset")
             return
         end
         g.breathe_position = { x = x, y = y }
@@ -1124,8 +1124,8 @@ function Commands.breathe(rest)
         return
     end
 
-    out("Usage: /tox breathe || /tox breathe cycles <N> || /tox breathe count <N>"
-        .. " || /tox breathe position <x> <y>")
+    out("Usage: /mind breathe || /mind breathe cycles <N> || /mind breathe count <N>"
+        .. " || /mind breathe position <x> <y>")
 end
 
 local function readyConfigList()
@@ -1178,7 +1178,7 @@ function Commands.ready(rest)
         step = (step or ""):lower()
         mode = (mode or ""):lower()
         if step == "" then
-            out("Usage: /tox ready include <grounding||breathing||lift> on||off")
+            out("Usage: /mind ready include <grounding||breathing||lift> on||off")
             return
         end
         if not READY_STEP_SET[step] then
@@ -1186,7 +1186,7 @@ function Commands.ready(rest)
             return
         end
         if mode ~= "on" and mode ~= "off" then
-            out("Usage: /tox ready include " .. step .. " on||off")
+            out("Usage: /mind ready include " .. step .. " on||off")
             return
         end
         local ok = ns.Ready.SetInclude(step, mode == "on")
@@ -1201,7 +1201,7 @@ function Commands.ready(rest)
     if sub == "order" then
         local a, b, c = after:match("^(%S+)%s+(%S+)%s+(%S+)$")
         if not (a and b and c) then
-            out("Usage: /tox ready order <step> <step> <step>"
+            out("Usage: /mind ready order <step> <step> <step>"
                 .. " (grounding, breathing, lift)")
             return
         end
@@ -1220,13 +1220,13 @@ function Commands.ready(rest)
         return
     end
 
-    out("Usage: /tox ready || /tox ready list || /tox ready cancel"
-        .. " || /tox ready include <step> on||off"
-        .. " || /tox ready order <step> <step> <step>")
+    out("Usage: /mind ready || /mind ready list || /mind ready cancel"
+        .. " || /mind ready include <step> on||off"
+        .. " || /mind ready order <step> <step> <step>")
 end
 
--- Sprint 5: /tox callout. Master toggle + UI/sound sub-toggles. No-arg form
--- prints state for all three (matches the user spec; differs from /tox
+-- Sprint 5: /mind callout. Master toggle + UI/sound sub-toggles. No-arg form
+-- prints state for all three (matches the user spec; differs from /mind
 -- positive's no-arg-toggles behavior). Sub-toggles only apply meaningfully
 -- while the master is enabled; the printed state surfaces both regardless.
 -- Sprint 7a (F2): `sound` now also takes set/list/preview alongside the
@@ -1251,7 +1251,7 @@ local function calloutSound(g, after, name)
         local id = ns.Callout.ResolveSoundName(name)
         if not id then
             out("Unknown sound '" .. (name ~= "" and name or "<none>")
-                .. "'. Run /tox callout sound list.")
+                .. "'. Run /mind callout sound list.")
             return
         end
         g.callout_sound_id = id
@@ -1262,17 +1262,17 @@ local function calloutSound(g, after, name)
     if after == "preview" then
         if not ns.Callout.PreviewSound(name) then
             out("Unknown sound '" .. (name ~= "" and name or "<none>")
-                .. "'. Run /tox callout sound list.")
+                .. "'. Run /mind callout sound list.")
         end
         return
     end
     if after == "" then
         out("Callout sound: " .. (g.callout_sound and "on" or "off")
             .. ", selected " .. ns.Callout.CurrentSoundName() .. ".")
-        out("Usage: /tox callout sound on||off || set <name> || list || preview <name>")
+        out("Usage: /mind callout sound on||off || set <name> || list || preview <name>")
         return
     end
-    out("Usage: /tox callout sound on||off || set <name> || list || preview <name>")
+    out("Usage: /mind callout sound on||off || set <name> || list || preview <name>")
 end
 
 function Commands.callout(rest)
@@ -1312,7 +1312,7 @@ function Commands.callout(rest)
 
     if sub == "ui" then
         if after ~= "on" and after ~= "off" then
-            out("Usage: /tox callout ui <on||off>")
+            out("Usage: /mind callout ui <on||off>")
             return
         end
         g.callout_ui = (after == "on")
@@ -1324,14 +1324,14 @@ function Commands.callout(rest)
         return
     end
 
-    out("Usage: /tox callout || /tox callout on||off"
-        .. " || /tox callout ui on||off || /tox callout sound on||off||set||list||preview")
+    out("Usage: /mind callout || /mind callout on||off"
+        .. " || /mind callout ui on||off || /mind callout sound on||off||set||list||preview")
 end
 
--- Sprint 5b: /tox reminders. Master toggle + reset. No-arg form prints state.
--- Mirrors /tox callout's no-arg behavior (state, not toggle) — the same
--- distinction the spec called for between /tox positive (no-arg toggles) and
--- /tox callout (no-arg shows state). Reminders is a master+behavior toggle
+-- Sprint 5b: /mind reminders. Master toggle + reset. No-arg form prints state.
+-- Mirrors /mind callout's no-arg behavior (state, not toggle) — the same
+-- distinction the spec called for between /mind positive (no-arg toggles) and
+-- /mind callout (no-arg shows state). Reminders is a master+behavior toggle
 -- with no sub-toggles, so the state line is minimal.
 function Commands.reminders(rest)
     local g = db(); if not g then return end
@@ -1368,11 +1368,11 @@ function Commands.reminders(rest)
         return
     end
 
-    out("Usage: /tox reminders || /tox reminders on||off || /tox reminders reset")
+    out("Usage: /mind reminders || /mind reminders on||off || /mind reminders reset")
 end
 
--- Sprint 5c: /tox warnings. Master toggle + reset. No-arg form prints state.
--- Mirrors /tox reminders shape exactly — master+behavior toggle, no sub-toggles.
+-- Sprint 5c: /mind warnings. Master toggle + reset. No-arg form prints state.
+-- Mirrors /mind reminders shape exactly — master+behavior toggle, no sub-toggles.
 function Commands.warnings(rest)
     local g = db(); if not g then return end
     local sub = rest:match("^(%S*)") or ""
@@ -1407,10 +1407,10 @@ function Commands.warnings(rest)
         return
     end
 
-    out("Usage: /tox warnings || /tox warnings on||off || /tox warnings reset")
+    out("Usage: /mind warnings || /mind warnings on||off || /mind warnings reset")
 end
 
--- Sprint 5d: /tox category. Two family master toggles sitting above the
+-- Sprint 5d: /mind category. Two family master toggles sitting above the
 -- per-feature toggles. No-arg prints both states. These toggles never touch the
 -- per-feature sub-state (positive_ui, callout_*, reminders, warnings, channels,
 -- handling) — turning a category off then on resumes features as they were.
@@ -1449,7 +1449,7 @@ function Commands.category(rest)
         out(name .. " category disabled.")
         return
     end
-    out("Usage: /tox category || /tox category toxfilter on||off || /tox category uplifter on||off")
+    out("Usage: /mind category || /mind category toxfilter on||off || /mind category uplifter on||off")
 end
 
 function Commands.retention(rest)
@@ -1461,7 +1461,7 @@ function Commands.retention(rest)
     end
     local n = tonumber(arg)
     if not n or n < 7 or n > 365 then
-        out("Usage: /tox retention <days> (7-365)")
+        out("Usage: /mind retention <days> (7-365)")
         return
     end
     local g = db(); if not g then return end
@@ -1508,7 +1508,7 @@ local DISPATCH = {
     state     = function(_)    Commands.state()     end,
     config    = function(_)    Commands.config()    end,
     debug     = function(rest) if ns.Debug then ns.Debug.dispatch(rest) else
-                                   out("Unknown command 'debug'. Try /tox help.") end end,
+                                   out("Unknown command 'debug'. Try /mind help.") end end,
 }
 
 function Commands.dispatch(input)
@@ -1524,7 +1524,7 @@ function Commands.dispatch(input)
     if fn then
         fn(rest)
     else
-        out("Unknown command '" .. sub .. "'. Try /tox help.")
+        out("Unknown command '" .. sub .. "'. Try /mind help.")
     end
 end
 

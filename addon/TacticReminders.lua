@@ -3,7 +3,7 @@
 -- At ENCOUNTER_START, look up the encounter in JournalData and surface the
 -- 2-3 most critical mechanics for the user's effective role. First-attempt-
 -- only per session: a (instance, encounter, bucket) triple that's already
--- surfaced this session stays silent until /tox reminders reset or /reload.
+-- surfaced this session stays silent until /mind reminders reset or /reload.
 --
 -- Architectural principle: this is pre-pull factual data, not real-time
 -- tactical guidance during combat (that's Sprint 5's Callout). Display only,
@@ -36,7 +36,7 @@ local function db()
     return ns.Database and ns.Database:Get() or nil
 end
 
-local function out(line) print("[ToxFilter] " .. line) end
+local function out(line) print(ns.Const.PREFIX .. line) end
 
 local function isPaused()
     return ns.ToxFilterState and ns.ToxFilterState.isPaused() or false
@@ -45,7 +45,7 @@ end
 local function dprint(line)
     local g = db()
     if g and g.debug_enabled then
-        print("[ToxFilter Debug] " .. line)
+        print(ns.Const.DEBUG_PREFIX .. line)
     end
 end
 
@@ -93,7 +93,7 @@ function TacticReminders.Lookup(instance, encounter, bucket, role)
     return combined
 end
 
--- Count of encounters in JournalData. Used by /tox reminders state line.
+-- Count of encounters in JournalData. Used by /mind reminders state line.
 function TacticReminders.CountEncounters()
     local J = ns.JournalData
     if not (J and J.instances) then return 0, 0 end
@@ -119,7 +119,7 @@ end
 
 -- Clear the seen map. Called from OnInitialize so reminders re-surface
 -- every /reload (session-scoped despite the db storage), and from
--- /tox reminders reset for user-invoked re-arm.
+-- /mind reminders reset for user-invoked re-arm.
 function TacticReminders.ResetSession()
     local g = db(); if not g then return end
     g.tactic_reminders_seen = {}
@@ -190,7 +190,7 @@ function TacticReminders.Surface(instance, encounter, bucket)
 
     out(encounter .. " (" .. bucket .. ") — " .. displayRole(role) .. " reminders:")
     for _, line in ipairs(mechanics) do
-        print("[ToxFilter]   - " .. line)
+        print(ns.Const.PREFIX .. "  - " .. line)
     end
 
     -- On-screen surface via RaidWarningFrame (Sprint 5b polish). Local-only:

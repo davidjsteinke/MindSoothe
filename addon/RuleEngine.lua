@@ -12,7 +12,7 @@
 -- which lets the chat dispatcher apply per-user category-handling overrides
 -- during multi-hit aggressiveness ranking AND final dispatch (so they stay
 -- consistent — a user setting slur=silent sees the silent winner, not a stale
--- default-edit pick). When omitted (corpus harness, /tox test internal use)
+-- default-edit pick). When omitted (corpus harness, /mind test internal use)
 -- the engine falls back to Categories.HANDLING.
 --
 -- Sprint 3: ns.UserRules (blacklist/whitelist) is consulted during token
@@ -80,7 +80,7 @@ local function classify(msg, handlingResolver)
                     -- User-added blacklist hit. Sprint 4 fix Issue 4:
                     -- handling is hardcoded to "edit" regardless of the
                     -- general_hostility category default OR any user
-                    -- /tox handle override. Surgical rewrite is the
+                    -- /mind handle override. Surgical rewrite is the
                     -- respectful default for personally-flagged words —
                     -- silently dropping them with del or silent is too
                     -- aggressive. The category label stays general_hostility

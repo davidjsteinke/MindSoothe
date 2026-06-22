@@ -113,7 +113,7 @@ end
 local function dbg(fmt, ...)
     local g = ns.Database and ns.Database:Get() or nil
     if not g or not g.debug_enabled then return end
-    print("[ToxFilter Debug] " .. fmt:format(...))
+    print(ns.Const.DEBUG_PREFIX .. fmt:format(...))
 end
 
 local function userRole()
@@ -131,7 +131,7 @@ local function notify(moment)
     for i = 1, #subscribers do
         local ok, err = pcall(subscribers[i], moment)
         if not ok then
-            print("[ToxFilter] Positive subscriber error: " .. tostring(err))
+            print(ns.Const.PREFIX .. "Positive subscriber error: " .. tostring(err))
         end
     end
 end
