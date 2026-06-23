@@ -37,6 +37,10 @@ ignore:
   - .release
   - packager
   - .github
+  # Root README is the GitHub landing page only. The addon ships addon/README.md,
+  # which move-folders lifts to MindSoothe/README.md; excluding the root copy
+  # avoids both files targeting that same path.
+  - README.md
   - CLAUDE.md
   - CLAUDE_ARCHIVE.md
   - PII_Audit_Sprint6.md

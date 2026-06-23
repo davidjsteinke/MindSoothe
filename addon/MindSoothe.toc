@@ -2,7 +2,7 @@
 ## Title: Mind Soothe
 ## Notes: Role-confidence support — filters incoming group/raid/instance/BG chat.
 ## Author: davidjsteinke
-## Version: 0.8.0-sprint8
+## Version: 1.0.0
 ## SavedVariables: MindSootheDB
 ## X-Curse-Project-ID: 1562759
 

@@ -1,7 +1,19 @@
 # Changelog
 
-All notable changes to Mind Soothe are recorded here. Version labels follow the
-TOC `## Version:` string, which is the single source of truth for the version.
+All notable changes to Mind Soothe are recorded here. Released versions are named
+for the git tag, which the packager stamps into the TOC `## Version:` at build
+time; the two are kept in sync.
+
+## [1.0.0] — 2026-06-22
+
+First public release. Mind Soothe is live on CurseForge and Wago, built from the
+git tag by the automated GitHub Actions release pipeline (BigWigs packager). No
+schema, feature, classifier, or rule change from the launch-prep work below;
+this tag marks the launch of that work as v1.0.0.
+
+- Published to CurseForge, Wago, and GitHub Releases on tag push
+  (`.github/workflows/release.yml`).
+- TOC `## Version:` set to `1.0.0`; schema v11.
 
 ## [0.8.0-sprint8] — 2026-06-22
 
@@ -31,10 +43,13 @@ schema change (still v11); no feature, classifier, or rule changes.
 - The SavedVariables rename is a fresh start; there is no migration from the old
   database.
 
-## [Sprint 7b]
+## [0.7.0-sprint7b]
 
-Classifier tuning and content-language polish, plus a full regression pass with
-per-category threshold-gate enforcement.
+Bugfix batch on top of 7a (no schema change):
+
+- Name-escape capture fix in positive-moment handling.
+- Record narrowing so stored events keep only the intended fields.
+- Combat and callout polish folding in the post-N12 out-of-combat scoping.
 
 ## [0.7.0-sprint7a] — Sprint 7a
 

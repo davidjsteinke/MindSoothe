@@ -1,10 +1,10 @@
 # Mind Soothe
 
-World of Warcraft addon that filters incoming group/raid/instance/BG chat for the installing user only. Pre-release.
+World of Warcraft addon that filters incoming group/raid/instance/BG chat for the installing user only.
 
 ## Status
 
-Build 1 Sprint 5. Adds tactical role-callout prioritization on top of the Sprint 4 family (4a affirmative data + 4b visual UI + three rounds of post-verification fixes). When a message contains a tactical callout addressed to the user's effective role, the line gets a warm-amber tint and a subtle audio cue plays. Opt-in via `/mind callout on`; off by default. Callouts are out-of-combat-only: during boss encounters and Mythic+ pulls the game restricts addon code execution and delivers incoming chat as a protected value addons cannot read, so no addon can inspect chat during a fight. Callouts (and the rest of chat filtering) resume the moment the pull ends.
+Released — v1.0.0, available on CurseForge. A deterministic, local-only chat filter for the installing player: incoming group/raid/instance/BG chat is tokenized, classified against a static rule table, and handled per category (pass / edit / delete / silent), with no network calls, no automation, and no player names or other PII stored. Around the filter sit role-confidence features — positive-moment capture (including directed emotes), out-of-combat role callouts with a selectable cue, pre-pull tactic reminders and per-key pre-dungeon warnings, session and lifetime stats, grounding and box-breathing rituals, typo-tolerant keyword matching, category master toggles, and a Settings panel. All output is local to your own chat frame; nothing is ever sent to the group or to a server.
 
 ## What it does today
 
@@ -141,9 +141,13 @@ Live surfacing is asymmetric: a stat is shown only when reassuring (wipe rate �
 
 Settings are stored via AceDB-3.0 in account-wide scope (`MindSootheDB`). A schema-version migration framework is in place; future sprints add migrations as needed. If the SavedVariables file is corrupted, the addon resets to defaults and prints a single line to chat — no silent data loss.
 
-## Install (dev)
+## Install
 
-This is pre-release; there's no public distribution yet. From the project root:
+Mind Soothe is on CurseForge (https://www.curseforge.com/wow/addons/mindsoothe), or install through the CurseForge app; a Wago build is published from the same release. To install manually, unzip the release into `Interface/AddOns/`, then restart the client or `/reload`. Run `/mind help` once in-game to see the command summary.
+
+### Developer install (from source)
+
+For working on the addon, not for normal use. From the project root:
 
 ```
 ./scripts/build-rules.sh   # regenerate addon/RuleData.lua from sensitive/
@@ -162,6 +166,12 @@ Counters (per-encounter, per-dungeon, per-session) are aggregated and permanent 
 ## What it does not do
 
 The addon never sends chat, never simulates input, never modifies what other players see, never makes network requests, and never stores or transmits player names or any other identifying info. All output is local to this user's chat frame.
+
+## Known issues
+
+- The one-shot whisper privacy note does not print the first time whisper filtering is enabled (see Whisper filtering above). Enabling whisper filtering is still a deliberate, user-initiated action.
+- The Settings panel does not expose the retention control; set windowed-event retention with `/mind retention <days>`.
+- Edit-mode rewrite can occasionally over-strip a neutral word at the edge of an attack span. Affected lines still display with the `[ToxEdit]` tag — the message is never dropped silently.
 
 ## License
 
