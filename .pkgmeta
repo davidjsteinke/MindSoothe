@@ -1,17 +1,29 @@
 # CurseForge / Wago (BigWigs) packager manifest.
 #
 # Layout note: the addon source lives in addon/ (the manifest is
-# addon/MindSoothe.toc), not at the repo root. move-folders below lifts addon/
-# into the packaged MindSoothe/ folder. If you instead configure the CurseForge
-# /Wago project to treat addon/ as the package root directly, move-folders is a
-# no-op and the ignore list still applies. Confirm against your upload path.
+# addon/MindSoothe.toc), not at the repo root. The packager copies the whole
+# repo root into .release/MindSoothe/ (applying the ignore list below, plus
+# every untracked/gitignored path, which it ignores automatically), then the
+# move-folders rule lifts the copied addon/ contents up to the package root so
+# the zip is MindSoothe/<addon files> with the TOC at the top. The map direction
+# is SRC: DEST relative to .release/, i.e. "MindSoothe/addon: MindSoothe".
 
 package-as: MindSoothe
 
 enable-nolib-creation: no
 
+# Release notes for CurseForge / Wago / GitHub come from the root CHANGELOG.md.
+# It is tracked and not ignored, so it is copied into the package (the packager
+# reads it from $pkgdir) and also ships inside the addon folder — harmless.
+manual-changelog:
+  filename: CHANGELOG.md
+  markup-type: markdown
+
+# SRC: DEST (paths relative to .release/). Lifts the copied addon/ contents up
+# to the package root. Must be "MindSoothe/addon", not "addon": the packager has
+# already copied the repo into .release/MindSoothe/, so the source is nested.
 move-folders:
-  MindSoothe: addon
+  MindSoothe/addon: MindSoothe
 
 # Everything that is NOT the shipping addon. The dev twin (Mind Dev) never exists
 # in the repo — deploy.sh stages it under .build/ (gitignored) — so there is no
@@ -22,6 +34,9 @@ ignore:
   - docs
   - app
   - .build
+  - .release
+  - packager
+  - .github
   - CLAUDE.md
   - CLAUDE_ARCHIVE.md
   - PII_Audit_Sprint6.md

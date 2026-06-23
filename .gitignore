@@ -15,6 +15,10 @@ build/
 # Dev-build staging (deploy.sh dev stamps the Mind Dev twin here; local-only)
 .build/
 
+# BigWigs packager: local clone + its build output (both local-only, never committed)
+packager/
+.release/
+
 # Editor / tooling backups
 *.bak.*
 

@@ -1,0 +1,27 @@
+name: Package and Release
+
+# Builds the addon with the BigWigs packager and publishes to CurseForge, Wago,
+# and GitHub Releases whenever a tag is pushed. The committed addon/ tree is the
+# ship identity ("Mind Soothe"); .pkgmeta lifts it into the packaged MindSoothe/
+# folder and applies the excludes. Tokens live ONLY in repository Secrets — this
+# file references them by name and never contains a value.
+on:
+  push:
+    tags:
+      - '**'
+
+permissions:
+  contents: write   # required so the packager can create the GitHub Release
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0   # packager needs full history/tags for the changelog
+      - name: Package and release
+        uses: BigWigsMods/packager@v2
+        env:
+          CF_API_KEY: ${{ secrets.CF_API_KEY }}
+          GITHUB_OAUTH: ${{ secrets.GITHUB_TOKEN }}   # auto-provided by Actions
